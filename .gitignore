@@ -1,1 +1,34 @@
 env
+
+# React Native / Metro
+node_modules/
+.expo/
+.expo-shared/
+.watchmanconfig
+.metro-cache/
+**/.metro-cache/
+**/.watchmanconfig
+
+# Android
+**/android/.gradle/
+**/android/app/build/
+**/android/build/
+**/android/local.properties
+**/*.keystore
+**/*.jks
+
+# iOS (if present)
+**/ios/Pods/
+**/ios/build/
+**/ios/DerivedData/
+
+# IDE / OS
+.idea/
+.vscode/
+*.iml
+Thumbs.db
+.DS_Store
+.bundle/
+
+# Logs
+*.log
