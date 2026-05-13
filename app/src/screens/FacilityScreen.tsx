@@ -8,6 +8,7 @@ import {
   View,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import BrandHeader from '../components/BrandHeader';
 
 export default function FacilityScreen() {
   const facilities = [
@@ -32,13 +33,7 @@ export default function FacilityScreen() {
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={styles.headerRow}>
-          <Pressable style={styles.iconButton}>
-            <Icon name="menu" size={22} color="#0E5FB3" />
-          </Pressable>
-          <Text style={styles.brand}>EarlyEyes</Text>
-          <Pressable style={styles.iconButton}>
-            <Icon name="account-circle-outline" size={24} color="#0E5FB3" />
-          </Pressable>
+          <BrandHeader size={26} />
         </View>
 
         <Text style={styles.title}>Centers</Text>
@@ -86,22 +81,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   headerRow: {
-    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  iconButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#EFECEA',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  brand: {
-    fontSize: 22,
-    fontWeight: '800',
-    color: '#0E5FB3',
   },
   title: {
     fontSize: 28,

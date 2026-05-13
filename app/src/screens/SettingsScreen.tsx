@@ -7,16 +7,26 @@ import {
   Text,
   View,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { CompositeNavigationProp, useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import BrandHeader from '../components/BrandHeader';
 import { languages } from '../constants/languages';
 import { useLanguage } from '../i18n';
-import { RootStackParamList } from '../navigation/AppNavigator';
+import {
+  BottomTabParamList,
+  RootStackParamList,
+} from '../navigation/AppNavigator';
 
 export default function SettingsScreen() {
   const navigation =
-    useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+    useNavigation<
+      CompositeNavigationProp<
+        BottomTabNavigationProp<BottomTabParamList, 'Settings'>,
+        NativeStackNavigationProp<RootStackParamList>
+      >
+    >();
   const { language } = useLanguage();
   const currentLanguage =
     languages.find((item) => item.code === language)?.label ?? 'English (US)';
@@ -25,13 +35,7 @@ export default function SettingsScreen() {
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={styles.headerRow}>
-          <Pressable style={styles.iconButton}>
-            <Icon name="menu" size={22} color="#0E5FB3" />
-          </Pressable>
-          <Text style={styles.brand}>EarlyEyes</Text>
-          <Pressable style={styles.iconButton}>
-            <Icon name="account-circle-outline" size={24} color="#0E5FB3" />
-          </Pressable>
+          <BrandHeader size={26} />
         </View>
 
         <Text style={styles.title}>Settings</Text>
@@ -41,7 +45,7 @@ export default function SettingsScreen() {
 
         <Pressable
           style={styles.card}
-          onPress={() => navigation.navigate('LanguageSelect')}
+          onPress={() => navigation.navigate('LanguageSelect', { fromSettings: true })}
         >
           <View style={[styles.cardIcon, styles.cardIconBlue]}>
             <Icon name="earth" size={18} color="#FFFFFF" />
@@ -117,22 +121,7 @@ const styles = StyleSheet.create({
     gap: 16,
   },
   headerRow: {
-    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  iconButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#EFECEA',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  brand: {
-    fontSize: 22,
-    fontWeight: '800',
-    color: '#0E5FB3',
   },
   title: {
     fontSize: 26,

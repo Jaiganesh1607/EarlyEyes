@@ -1,15 +1,18 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, SafeAreaView, StyleSheet, Text, View } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
-import { RootStackParamList } from '../navigation/AppNavigator';
+import BrandHeader from '../components/BrandHeader';
+import { saveAssessment } from '../db/AssessmentRepository';
+import { ScanStackParamList } from '../navigation/AppNavigator';
+import type { Assessment } from '../types/assessment';
 
 export default function ProcessingScreen() {
   const navigation =
-    useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+    useNavigation<NativeStackNavigationProp<ScanStackParamList>>();
   const route = useRoute();
-  const params = route.params as RootStackParamList['Processing'] | undefined;
+  const params = route.params as ScanStackParamList['Processing'] | undefined;
   const [progress, setProgress] = useState(0.65);
   const [stepIndex, setStepIndex] = useState(1);
 
@@ -23,13 +26,55 @@ export default function ProcessingScreen() {
     return 'text';
   }, [params?.audioUri, params?.photoUri]);
 
+  const assessment = useMemo<Assessment>(() => {
+    const timestamp = Date.now();
+    const id = `ee-${timestamp}-${Math.random().toString(36).slice(2, 8)}`;
+    const input_type = params?.photoUri
+      ? 'photo'
+      : params?.audioUri
+        ? 'audio'
+        : 'text';
+
+    const draft: Assessment = {
+      id,
+      timestamp,
+      risk_level: 'monitor',
+      indicators: params?.text
+        ? [params.text]
+        : input_type === 'photo'
+          ? ['Potential reflex irregularity detected.']
+          : ['Reported symptoms captured from audio.'],
+      plain_language: 'Follow-up Recommended',
+      tell_doctor:
+        "I used a screening app that suggested a follow-up. Please review the details and advise next steps.",
+      facility_id: 'Pediatric Eye Center',
+      language: 'en',
+      input_type,
+      confidence: 78,
+    };
+
+    console.log('[Processing] assessment draft', {
+      id: draft.id,
+      risk: draft.risk_level,
+      input: draft.input_type,
+    });
+
+    return draft;
+  }, [params?.audioUri, params?.photoUri, params?.text]);
+
+  const handleComplete = useCallback(async () => {
+    console.log('[Processing] handleComplete');
+    await saveAssessment(assessment);
+    navigation.navigate('Result', { assessment });
+  }, [assessment, navigation]);
+
   useEffect(() => {
     const timer = setTimeout(() => {
-      navigation.navigate('Result');
+      void handleComplete();
     }, 1800);
 
     return () => clearTimeout(timer);
-  }, [navigation]);
+  }, [handleComplete]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -54,11 +99,7 @@ export default function ProcessingScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.brandBlock}>
-        <View style={styles.brandBadge}>
-          <Icon name="shield-check" size={22} color="#0E5FB3" />
-        </View>
-        <Text style={styles.brand}>EarlyEyes</Text>
-        <Text style={styles.subtitle}>Analysis in Progress</Text>
+        <BrandHeader layout="stack" size={72} subtitle="Analysis in Progress" />
       </View>
 
       <View style={styles.progressCard}>
@@ -123,26 +164,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
     marginTop: 6,
-  },
-  brandBadge: {
-    width: 78,
-    height: 78,
-    borderRadius: 22,
-    borderWidth: 1.5,
-    borderColor: '#C7D2FE',
-    backgroundColor: '#F7FAFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  brand: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: '#0E5FB3',
-  },
-  subtitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#4B5563',
   },
   progressCard: {
     borderRadius: 20,

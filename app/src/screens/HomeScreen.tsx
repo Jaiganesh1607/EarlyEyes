@@ -1,30 +1,18 @@
 import React from 'react';
 import { Pressable, SafeAreaView, StyleSheet, Text, View } from 'react-native';
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useNavigation } from '@react-navigation/native';
+import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
-import { RootStackParamList } from '../navigation/AppNavigator';
+import { BottomTabParamList } from '../navigation/AppNavigator';
 
 export default function HomeScreen() {
   const navigation =
-    useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+    useNavigation<BottomTabNavigationProp<BottomTabParamList>>();
 
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <Pressable
-          style={styles.iconButton}
-          onPress={() => navigation.navigate('Settings')}
-        >
-          <Icon name="menu" size={24} color="#0E5FB3" />
-        </Pressable>
         <Text style={styles.brand}>EarlyEyes</Text>
-        <Pressable
-          style={styles.iconButton}
-          onPress={() => navigation.navigate('Settings')}
-        >
-          <Icon name="account-circle-outline" size={26} color="#0E5FB3" />
-        </Pressable>
       </View>
 
       <View style={styles.body}>
@@ -77,18 +65,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#F7F4F2',
   },
   header: {
-    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     paddingBottom: 12,
-  },
-  iconButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#F2F0EE',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   brand: {
     fontSize: 26,

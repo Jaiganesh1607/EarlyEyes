@@ -2,21 +2,23 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   Pressable,
   SafeAreaView,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
-import { RootStackParamList } from '../navigation/AppNavigator';
+import BrandHeader from '../components/BrandHeader';
+import { ScanStackParamList } from '../navigation/AppNavigator';
 
 export default function InputMethodScreen() {
   const navigation =
-    useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const route = useRoute();
-  const params = route.params as RootStackParamList['InputMethod'] | undefined;
+    useNavigation<NativeStackNavigationProp<ScanStackParamList, 'InputMethod'>>();
+  const route = useRoute<RouteProp<ScanStackParamList, 'InputMethod'>>();
+  const params = route.params;
   const [notes, setNotes] = useState('');
   const [photoUri, setPhotoUri] = useState<string | undefined>();
   const [audioUri, setAudioUri] = useState<string | undefined>();
@@ -31,116 +33,121 @@ export default function InputMethodScreen() {
   }, [params?.audioUri, params?.photoUri]);
 
   const canAnalyze = useMemo(() => {
-    return Boolean(notes.trim() || photoUri || audioUri);
-  }, [notes, photoUri, audioUri]);
+    const hasText = Boolean(notes.trim());
+    const hasVoice = Boolean(audioUri);
+    return hasText || hasVoice;
+  }, [notes, audioUri]);
 
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <Pressable style={styles.iconButton}>
-          <Icon name="menu" size={24} color="#0E5FB3" />
-        </Pressable>
-        <View style={styles.brandRow}>
-          <View style={styles.brandBadge}>
-            <Icon name="shield-check" size={16} color="#FFFFFF" />
-          </View>
-          <Text style={styles.brand}>EarlyEyes</Text>
-        </View>
+        <BrandHeader size={28} />
+      </View>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        <Text style={styles.title}>Start Health Check</Text>
+        <Text style={styles.subtitle}>
+          Choose how you want to provide information today.
+        </Text>
+
         <Pressable
-          style={styles.iconButton}
-          onPress={() => navigation.navigate('Settings')}
+          style={styles.card}
+          onPress={() => navigation.navigate('Camera', { photoUri, audioUri })}
         >
-          <Icon name="account-circle-outline" size={26} color="#0E5FB3" />
-        </Pressable>
-      </View>
-
-      <Text style={styles.title}>Start Health Check</Text>
-      <Text style={styles.subtitle}>
-        Choose how you want to provide information today.
-      </Text>
-
-      <Pressable
-        style={styles.card}
-        onPress={() => navigation.navigate('Camera')}
-      >
-        <View style={styles.cardIconWrap}>
-          <View style={[styles.cardIconPill, styles.cardIconBlue]}>
-            <Icon name="camera-iris" size={22} color="#FFFFFF" />
+          <View style={styles.cardIconWrap}>
+            <View style={[styles.cardIconPill, styles.cardIconBlue]}>
+              <Icon name="camera-iris" size={22} color="#FFFFFF" />
+            </View>
           </View>
-        </View>
-        <Text style={styles.cardTitle}>Take Photo</Text>
-        <Text style={styles.cardText}>
-          Capture a clear image of the physical symptom.
-        </Text>
-      </Pressable>
-
-      <Pressable
-        style={styles.card}
-        onPress={() => navigation.navigate('VoiceInput')}
-      >
-        <View style={styles.cardIconWrap}>
-          <View style={[styles.cardIconPill, styles.cardIconGreen]}>
-            <Icon name="microphone" size={22} color="#0B3D16" />
-          </View>
-        </View>
-        <Text style={styles.cardTitle}>Describe Symptoms</Text>
-        <Text style={styles.cardText}>
-          Use your voice to explain what is happening.
-        </Text>
-      </Pressable>
-
-      <View style={styles.notesCard}>
-        <Text style={styles.notesLabel}>Notes</Text>
-        <TextInput
-          value={notes}
-          onChangeText={setNotes}
-          placeholder="Add any observations before analyzing"
-          placeholderTextColor="#9CA3AF"
-          multiline
-          style={styles.notesInput}
-        />
-        <View style={styles.attachments}>
-          <View style={[styles.attachmentChip, !photoUri && styles.chipIdle]}>
-            <Icon name="camera" size={14} color={photoUri ? '#0E5FB3' : '#9CA3AF'} />
-            <Text style={[styles.chipText, !photoUri && styles.chipTextIdle]}>
-              {photoUri ? 'Photo added' : 'No photo'}
-            </Text>
-          </View>
-          <View style={[styles.attachmentChip, !audioUri && styles.chipIdle]}>
-            <Icon name="microphone" size={14} color={audioUri ? '#0E5FB3' : '#9CA3AF'} />
-            <Text style={[styles.chipText, !audioUri && styles.chipTextIdle]}>
-              {audioUri ? 'Audio added' : 'No audio'}
-            </Text>
-          </View>
-        </View>
-      </View>
-
-      <Pressable
-        style={[styles.analyzeButton, !canAnalyze && styles.analyzeDisabled]}
-        disabled={!canAnalyze}
-        onPress={() =>
-          navigation.navigate('Processing', {
-            photoUri,
-            audioUri,
-            text: notes.trim() || undefined,
-          })
-        }
-      >
-        <Text style={styles.analyzeText}>Analyze</Text>
-      </Pressable>
-
-      <View style={styles.privacyCard}>
-        <View style={styles.privacyIcon}>
-          <Icon name="information" size={16} color="#1D4ED8" />
-        </View>
-        <View style={styles.privacyBody}>
-          <Text style={styles.privacyTitle}>Privacy Assured</Text>
-          <Text style={styles.privacyText}>
-            All photos and audio are processed securely and are never shared
-            without your explicit permission.
+          <Text style={styles.cardTitle}>Take Photo</Text>
+          <Text style={styles.cardText}>
+            Capture a clear image of the physical symptom.
           </Text>
+        </Pressable>
+
+        <Pressable
+          style={styles.card}
+          onPress={() => navigation.navigate('VoiceInput', { photoUri, audioUri })}
+        >
+          <View style={styles.cardIconWrap}>
+            <View style={[styles.cardIconPill, styles.cardIconGreen]}>
+              <Icon name="microphone" size={22} color="#0B3D16" />
+            </View>
+          </View>
+          <Text style={styles.cardTitle}>Describe Symptoms</Text>
+          <Text style={styles.cardText}>
+            Use your voice to explain what is happening.
+          </Text>
+        </Pressable>
+
+        <View style={styles.notesCard}>
+          <Text style={styles.notesLabel}>Notes</Text>
+          <TextInput
+            value={notes}
+            onChangeText={setNotes}
+            placeholder="Add any observations before analyzing"
+            placeholderTextColor="#9CA3AF"
+            multiline
+            style={styles.notesInput}
+          />
+          <View style={styles.attachments}>
+            <View style={[styles.attachmentChip, !photoUri && styles.chipIdle]}>
+              <Icon
+                name="camera"
+                size={14}
+                color={photoUri ? '#0E5FB3' : '#9CA3AF'}
+              />
+              <Text style={[styles.chipText, !photoUri && styles.chipTextIdle]}>
+                {photoUri ? 'Photo added' : 'No photo'}
+              </Text>
+            </View>
+            <View style={[styles.attachmentChip, !audioUri && styles.chipIdle]}>
+              <Icon
+                name="microphone"
+                size={14}
+                color={audioUri ? '#0E5FB3' : '#9CA3AF'}
+              />
+              <Text style={[styles.chipText, !audioUri && styles.chipTextIdle]}>
+                {audioUri ? 'Audio added' : 'No audio'}
+              </Text>
+            </View>
+          </View>
         </View>
-      </View>
+
+        <Pressable
+          style={[styles.analyzeButton, !canAnalyze && styles.analyzeDisabled]}
+          disabled={!canAnalyze}
+          onPress={() =>
+            navigation.navigate('Processing', {
+              photoUri,
+              audioUri,
+              text: notes.trim() || undefined,
+            })
+          }
+        >
+          <Text style={styles.analyzeText}>Analyze</Text>
+        </Pressable>
+        {!canAnalyze ? (
+          <Text style={styles.analyzeHint}>
+            Add voice or notes to continue. Photo alone cannot be analyzed.
+          </Text>
+        ) : null}
+
+        <View style={styles.privacyCard}>
+          <View style={styles.privacyIcon}>
+            <Icon name="information" size={16} color="#1D4ED8" />
+          </View>
+          <View style={styles.privacyBody}>
+            <Text style={styles.privacyTitle}>Privacy Assured</Text>
+            <Text style={styles.privacyText}>
+              All photos and audio are processed securely and are never shared
+              without your explicit permission.
+            </Text>
+          </View>
+        </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -148,40 +155,17 @@ export default function InputMethodScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 24,
     backgroundColor: '#F7F4F2',
   },
   header: {
-    flexDirection: 'row',
+    paddingHorizontal: 24,
+    paddingTop: 16,
+    paddingBottom: 12,
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingBottom: 16,
   },
-  iconButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#F2F0EE',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  brandRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  brandBadge: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: '#6BA7B2',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  brand: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: '#0E5FB3',
+  scrollContent: {
+    paddingHorizontal: 24,
+    paddingBottom: 24,
   },
   title: {
     fontSize: 26,
@@ -324,5 +308,13 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '800',
+  },
+  analyzeHint: {
+    marginTop: 8,
+    marginBottom: 16,
+    textAlign: 'center',
+    fontSize: 13,
+    color: '#6B7280',
+    lineHeight: 18,
   },
 });

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   Pressable,
   SafeAreaView,
@@ -7,47 +7,56 @@ import {
   Text,
   View,
 } from 'react-native';
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import type { Assessment, RiskLevel } from '../types/assessment';
 import { getAssessmentById, getAssessments } from '../db/AssessmentRepository';
-import { RootStackParamList } from '../navigation/AppNavigator';
+import BrandHeader from '../components/BrandHeader';
+import { BottomTabParamList } from '../navigation/AppNavigator';
 
 export default function HistoryScreen() {
   const navigation =
-    useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+    useNavigation<BottomTabNavigationProp<BottomTabParamList, 'History'>>();
   const [assessments, setAssessments] = useState<Assessment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    let isMounted = true;
+  useFocusEffect(
+    useCallback(() => {
+      let isActive = true;
 
-    const load = async () => {
-      try {
-        const rows = await getAssessments();
-        if (isMounted) {
-          setAssessments(rows);
+      const load = async () => {
+        try {
+          setIsLoading(true);
+          console.log('[History] loading assessments');
+          const rows = await getAssessments();
+          if (isActive) {
+            setAssessments(rows);
+          }
+        } finally {
+          if (isActive) {
+            setIsLoading(false);
+            console.log('[History] load complete');
+          }
         }
-      } finally {
-        if (isMounted) {
-          setIsLoading(false);
-        }
-      }
-    };
+      };
 
-    load();
+      load();
 
-    return () => {
-      isMounted = false;
-    };
-  }, []);
+      return () => {
+        isActive = false;
+      };
+    }, []),
+  );
 
   const handleOpenResult = useCallback(
     async (id: string) => {
       const assessment = await getAssessmentById(id);
       if (assessment) {
-        navigation.navigate('Result', { assessment });
+        navigation.navigate('InputMethod', {
+          screen: 'Result',
+          params: { assessment },
+        });
       }
     },
     [navigation],
@@ -70,13 +79,7 @@ export default function HistoryScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.headerRow}>
-        <Pressable style={styles.iconButton}>
-          <Icon name="menu" size={22} color="#0E5FB3" />
-        </Pressable>
-        <Text style={styles.brand}>EarlyEyes</Text>
-        <Pressable style={styles.iconButton}>
-          <Icon name="account-circle-outline" size={24} color="#0E5FB3" />
-        </Pressable>
+        <BrandHeader size={26} />
       </View>
 
       <Text style={styles.title}>History</Text>
@@ -87,6 +90,7 @@ export default function HistoryScreen() {
         <SectionList
           sections={sections}
           keyExtractor={(item) => item.id}
+          style={styles.listContainer}
           contentContainerStyle={styles.list}
           renderSectionHeader={({ section }) => (
             <Text style={styles.sectionHeader}>{section.title}</Text>
@@ -197,23 +201,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#F8F5F3',
   },
   headerRow: {
-    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     marginBottom: 18,
   },
-  iconButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#EFECEA',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  brand: {
-    fontSize: 22,
-    fontWeight: '800',
-    color: '#0E5FB3',
+  listContainer: {
+    flex: 1,
   },
   title: {
     fontSize: 26,

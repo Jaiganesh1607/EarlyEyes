@@ -7,14 +7,15 @@ import {
   Text,
   View,
 } from 'react-native';
-import { useRoute } from '@react-navigation/native';
+import { useRoute, type RouteProp } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import BrandHeader from '../components/BrandHeader';
 import type { Assessment, RiskLevel } from '../types/assessment';
-import type { RootStackParamList } from '../navigation/AppNavigator';
+import type { ScanStackParamList } from '../navigation/AppNavigator';
 
 export default function ResultScreen() {
-  const route = useRoute();
-  const params = route.params as RootStackParamList['Result'] | undefined;
+  const route = useRoute<RouteProp<ScanStackParamList, 'Result'>>();
+  const params = route.params;
 
   const assessment = useMemo<Assessment>(
     () =>
@@ -56,13 +57,7 @@ export default function ResultScreen() {
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={styles.headerRow}>
-          <Pressable style={styles.iconButton}>
-            <Icon name="menu" size={22} color="#0E5FB3" />
-          </Pressable>
-          <Text style={styles.brand}>EarlyEyes</Text>
-          <Pressable style={styles.iconButton}>
-            <Icon name="account-circle-outline" size={24} color="#0E5FB3" />
-          </Pressable>
+          <BrandHeader size={26} />
         </View>
 
         <View style={[styles.alertBanner, { backgroundColor: risk.bannerColor }]}>
@@ -190,22 +185,7 @@ const styles = StyleSheet.create({
     gap: 18,
   },
   headerRow: {
-    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  iconButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#EFECEA',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  brand: {
-    fontSize: 22,
-    fontWeight: '800',
-    color: '#0E5FB3',
   },
   alertBanner: {
     flexDirection: 'row',

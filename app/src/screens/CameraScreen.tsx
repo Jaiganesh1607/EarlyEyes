@@ -16,11 +16,13 @@ import {
   useCameraPermission,
   usePhotoOutput,
 } from 'react-native-vision-camera';
-import { RootStackParamList } from '../navigation/AppNavigator';
+import { RouteProp, useRoute } from '@react-navigation/native';
+import { ScanStackParamList } from '../navigation/AppNavigator';
 
 export default function CameraScreen() {
   const navigation =
-    useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+    useNavigation<NativeStackNavigationProp<ScanStackParamList>>();
+  const route = useRoute<RouteProp<ScanStackParamList, 'Camera'>>();
   const [cameraPosition, setCameraPosition] = useState<'back' | 'front'>('back');
   const device = useCameraDevice(cameraPosition);
   const { hasPermission, requestPermission } = useCameraPermission();
@@ -46,7 +48,10 @@ export default function CameraScreen() {
       );
       const filePath = await photo.saveToTemporaryFileAsync();
       photo.dispose();
-      navigation.navigate('InputMethod', { photoUri: `file://${filePath}` });
+      navigation.navigate('InputMethod', {
+        photoUri: `file://${filePath}`,
+        audioUri: route.params?.audioUri,
+      });
     } finally {
       setIsCapturing(false);
     }
@@ -68,9 +73,12 @@ export default function CameraScreen() {
 
     const asset = result.assets?.[0];
     if (asset?.uri) {
-      navigation.navigate('InputMethod', { photoUri: asset.uri });
+      navigation.navigate('InputMethod', {
+        photoUri: asset.uri,
+        audioUri: route.params?.audioUri,
+      });
     }
-  }, [navigation]);
+  }, [navigation, route.params?.audioUri]);
 
   return (
     <SafeAreaView style={styles.container}>

@@ -9,15 +9,16 @@ import {
   View,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useNavigation } from '@react-navigation/native';
+import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import AudioRecord from 'react-native-audio-record';
 import VoiceWaveform from '../components/VoiceWaveform';
-import { RootStackParamList } from '../navigation/AppNavigator';
+import { ScanStackParamList } from '../navigation/AppNavigator';
 
 export default function VoiceInputScreen() {
   const navigation =
-    useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+    useNavigation<NativeStackNavigationProp<ScanStackParamList>>();
+  const route = useRoute<RouteProp<ScanStackParamList, 'VoiceInput'>>();
   const [isRecording, setIsRecording] = useState(false);
   const [permissionGranted, setPermissionGranted] = useState(true);
 
@@ -85,11 +86,21 @@ export default function VoiceInputScreen() {
     }
     if (isRecording) {
       const audioPath = await stopRecording();
-      navigation.navigate('InputMethod', { audioUri: audioPath });
+      navigation.navigate('InputMethod', {
+        photoUri: route.params?.photoUri,
+        audioUri: audioPath,
+      });
       return;
     }
     await startRecording();
-  }, [isRecording, navigation, permissionGranted, startRecording, stopRecording]);
+  }, [
+    isRecording,
+    navigation,
+    permissionGranted,
+    route.params?.photoUri,
+    startRecording,
+    stopRecording,
+  ]);
 
   return (
     <SafeAreaView style={styles.container}>

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Pressable, SafeAreaView, StyleSheet, Text, View } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useNavigation } from '@react-navigation/native';
+import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import LanguagePicker from '../components/LanguagePicker';
 import { languages } from '../constants/languages';
 import { t, useLanguage } from '../i18n';
@@ -10,6 +10,7 @@ import { RootStackParamList } from '../navigation/AppNavigator';
 export default function LanguageSelectScreen() {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const route = useRoute<RouteProp<RootStackParamList, 'LanguageSelect'>>();
   const { language, setLanguage, isReady } = useLanguage();
   const [selectedCode, setSelectedCode] = useState(language);
 
@@ -26,7 +27,14 @@ export default function LanguageSelectScreen() {
     if (!selectedLanguage) {
       return;
     }
+
     await setLanguage(selectedLanguage.code);
+
+    if (route.params?.fromSettings) {
+      navigation.goBack();
+      return;
+    }
+
     navigation.navigate('Onboarding');
   };
 

@@ -1,8 +1,9 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React from 'react';
-import { Pressable, SafeAreaView, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, SafeAreaView, StyleSheet, Text, View } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useNavigation } from '@react-navigation/native';
+import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { t, useLanguage } from '../i18n';
 import { RootStackParamList } from '../navigation/AppNavigator';
 
@@ -13,45 +14,47 @@ export default function OnboardingScreen() {
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { language } = useLanguage();
 
+  const steps = [
+    { icon: 'camera-plus-outline', text: t(language, 'onboarding_step_1') },
+    { icon: 'shield-check-outline', text: t(language, 'onboarding_step_2') },
+    { icon: 'medical-bag', text: t(language, 'onboarding_step_3') },
+  ];
+
   const handleGetStarted = async () => {
     await AsyncStorage.setItem(ONBOARDING_STORAGE_KEY, 'true');
-    navigation.navigate('Home');
+    navigation.navigate('MainTabs');
   };
 
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <View style={styles.brandMark}>
-          <View style={styles.brandShield} />
-        </View>
+        <Image
+          source={require('../../assets/images/earlyeyes-logo.png')}
+          style={styles.logo}
+          resizeMode="contain"
+        />
         <Text style={styles.brandText}>EarlyEyes</Text>
       </View>
 
       <View style={styles.hero}>
-        <View style={styles.heroPlaceholder} />
+        <Image
+          source={require('../../assets/images/onboard-image.png')}
+          style={styles.heroImage}
+          resizeMode="cover"
+        />
       </View>
 
       <Text style={styles.title}>{t(language, 'onboarding_title')}</Text>
       <Text style={styles.subtitle}>{t(language, 'onboarding_subtitle')}</Text>
 
-      <View style={styles.stepCard}>
-        <View style={styles.stepIcon}>
-          <Text style={styles.stepIconText}>CAM</Text>
+      {steps.map((step, index) => (
+        <View style={styles.stepCard} key={step.icon + index}>
+          <View style={styles.stepIcon}>
+            <Icon name={step.icon} size={22} color="#0F5FAE" />
+          </View>
+          <Text style={styles.stepText}>{step.text}</Text>
         </View>
-        <Text style={styles.stepText}>{t(language, 'onboarding_step_1')}</Text>
-      </View>
-      <View style={styles.stepCard}>
-        <View style={styles.stepIcon}>
-          <Text style={styles.stepIconText}>CHK</Text>
-        </View>
-        <Text style={styles.stepText}>{t(language, 'onboarding_step_2')}</Text>
-      </View>
-      <View style={styles.stepCard}>
-        <View style={styles.stepIcon}>
-          <Text style={styles.stepIconText}>DOC</Text>
-        </View>
-        <Text style={styles.stepText}>{t(language, 'onboarding_step_3')}</Text>
-      </View>
+      ))}
 
       <Pressable
         onPress={handleGetStarted}
@@ -78,20 +81,9 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 16,
   },
-  brandMark: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#1D74C9',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  brandShield: {
-    width: 16,
-    height: 18,
-    borderRadius: 6,
-    borderWidth: 2,
-    borderColor: '#FFFFFF',
+  logo: {
+    width: 34,
+    height: 34,
   },
   brandText: {
     fontSize: 22,
@@ -102,10 +94,10 @@ const styles = StyleSheet.create({
     marginTop: 8,
     marginBottom: 16,
   },
-  heroPlaceholder: {
+  heroImage: {
     height: 180,
     borderRadius: 20,
-    backgroundColor: '#DCE7F4',
+    width: '100%',
   },
   title: {
     fontSize: 24,
@@ -134,14 +126,9 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: '#D7E7F7',
+    backgroundColor: '#EAF2FB',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  stepIconText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#1D74C9',
   },
   stepText: {
     fontSize: 15,
