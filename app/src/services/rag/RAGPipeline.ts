@@ -1,9 +1,6 @@
 import { getChunks } from './ChunkLoader';
 import { buildQuery } from './QueryBuilder';
-import { scoreDiseases } from './DiseaseScorer';
-import type { DiseaseMatch } from './DiseaseScorer';
-
-export type { DiseaseMatch };
+import { scoreDiseases, DiseaseMatch } from './DiseaseScorer';
 
 export interface RAGResult {
   top_diseases: DiseaseMatch[];
@@ -11,15 +8,14 @@ export interface RAGResult {
   risk_level: 'urgent' | 'monitor' | 'ok';
   confidence: number;
   matched_by: 'image' | 'voice' | 'text' | 'combined' | 'none';
+  total_matched: number;
 }
 
 const URGENT_KEYWORDS = [
-  "death",
-  "shock",
-  "organ failure",
-  "fatality",
-  "life-threatening",
-  "mortality",
+  "death", "shock", "organ failure", "fatality", "life-threatening",
+  "mortality", "emergency", "coma", "airway obstruction", "cardiac failure",
+  "respiratory failure", "septic shock", "kernicterus", "cerebral malaria",
+  "within hours", "without treatment", "surgical emergency"
 ];
 
 export async function runRAG(
@@ -29,52 +25,37 @@ export async function runRAG(
 ): Promise<RAGResult> {
   const chunks = getChunks();
   const query = buildQuery(imageIndicators, voiceTranscript, textInput);
-  const allMatches = scoreDiseases(chunks, query);
+  const scored = scoreDiseases(chunks, query);
+  
+  const top_diseases = scored.slice(0, 3);
+  const primary_disease = top_diseases[0] ?? null;
 
-  const top_diseases = allMatches.slice(0, 3);
-  const primary_disease = top_diseases.length > 0 ? top_diseases[0] : null;
-
-  // Determine matched_by
   const hasImage = imageIndicators.length > 0;
   const hasVoice = voiceTranscript.trim().length > 0;
   const hasText = textInput.trim().length > 0;
 
-  let matched_by: RAGResult['matched_by'];
-  if (hasImage && (hasVoice || hasText)) {
-    matched_by = 'combined';
-  } else if (hasImage) {
-    matched_by = 'image';
-  } else if (hasVoice) {
-    matched_by = 'voice';
-  } else if (hasText) {
-    matched_by = 'text';
-  } else {
-    matched_by = 'none';
-  }
+  const matched_by =
+    (hasImage && (hasVoice || hasText)) ? 'combined' :
+    hasImage ? 'image' :
+    hasVoice ? 'voice' :
+    hasText ? 'text' : 'none';
 
-  // Determine risk_level
-  let risk_level: RAGResult['risk_level'] = 'ok';
+  const isUrgent = primary_disease !== null && (
+    primary_disease.score > 30 ||
+    primary_disease.future_warnings.some(w =>
+      URGENT_KEYWORDS.some(kw => w.toLowerCase().includes(kw))
+    )
+  );
 
-  if (top_diseases.length > 0) {
-    risk_level = 'monitor';
-  }
-
-  if (primary_disease) {
-    const hasUrgentWarning = primary_disease.future_warnings.some((w) =>
-      URGENT_KEYWORDS.some((kw) => w.toLowerCase().includes(kw))
-    );
-    if (hasUrgentWarning || primary_disease.score > 30) {
-      risk_level = 'urgent';
-    }
-  }
-
-  const confidence = primary_disease?.confidence_percent ?? 0;
+  const risk_level = isUrgent ? 'urgent' :
+    top_diseases.length > 0 ? 'monitor' : 'ok';
 
   return {
     top_diseases,
     primary_disease,
     risk_level,
-    confidence,
+    confidence: primary_disease?.confidence_percent ?? 0,
     matched_by,
+    total_matched: scored.length
   };
 }

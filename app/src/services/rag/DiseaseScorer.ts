@@ -1,66 +1,69 @@
-import type { DiseaseChunk } from './ChunkLoader';
-import type { UnifiedQuery } from './QueryBuilder';
+import { DiseaseChunk } from './ChunkLoader';
+import { UnifiedQuery } from './QueryBuilder';
 
 export interface DiseaseMatch {
   id: string;
   disease: string;
   category: string;
   icd11_code: string;
+  age_group: string;
+  who_muac_threshold: string;
   score: number;
   confidence_percent: number;
   matched_symptoms: string[];
   matched_visual: string[];
   immediate_actions: string[];
   future_warnings: string[];
+  nutritional_recommendations: string[];
 }
 
-export function scoreDiseases(
-  chunks: DiseaseChunk[],
-  query: UnifiedQuery
-): DiseaseMatch[] {
+export function scoreDiseases(chunks: DiseaseChunk[], query: UnifiedQuery): DiseaseMatch[] {
   const results: DiseaseMatch[] = [];
 
   for (const chunk of chunks) {
     let score = 0;
-    const matchedSymptomsSet: Set<string> = new Set();
-    const matchedVisualSet: Set<string> = new Set();
+    const matched_symptoms = new Set<string>();
+    const matched_visual = new Set<string>();
 
-    for (const rawTerm of query.all_terms) {
-      const term = rawTerm.toLowerCase();
-
-      // top_terms match: +3
-      if (chunk.top_terms.includes(term)) {
+    for (const term of query.all_terms) {
+      // top_terms match - highest weight
+      if (chunk.top_terms.some(t => t.toLowerCase() === term)) {
         score += 3;
       }
 
-      // visual_indicators match: +5
+      // visual_indicators match - strong clinical signal
       for (const vi of chunk.visual_indicators) {
         if (vi.toLowerCase().includes(term)) {
           score += 5;
-          matchedVisualSet.add(vi);
+          matched_visual.add(vi);
         }
       }
 
-      // symptoms match: +2
-      for (const symptom of chunk.symptoms) {
-        if (symptom.toLowerCase().includes(term)) {
+      // symptoms match
+      for (const sym of chunk.symptoms) {
+        if (sym.toLowerCase().includes(term)) {
           score += 2;
-          matchedSymptomsSet.add(symptom);
+          matched_symptoms.add(sym);
         }
       }
 
-      // description match: +1
+      // description match - lowest weight
       if (chunk.description.toLowerCase().includes(term)) {
         score += 1;
       }
     }
 
-    // Visual bonus: +10 if we had visual input and matched visual indicators
-    if (query.visual_terms.length > 0 && matchedVisualSet.size > 0) {
+    // bonus: image pipeline contributed visual terms AND disease has visual matches
+    if (query.visual_terms.length > 0 && matched_visual.size > 0) {
       score += 10;
     }
 
-    const confidence_percent = Math.min(Math.round((score / 50) * 100), 99);
+    // bonus: who_muac_threshold present and score already high (malnutrition confirmation)
+    if (chunk.who_muac_threshold.length > 0 && score > 15) {
+      score += 5;
+    }
+
+    const confidence_percent = Math.min(Math.round((score / 60) * 100), 99);
 
     if (score >= 5) {
       results.push({
@@ -68,18 +71,18 @@ export function scoreDiseases(
         disease: chunk.disease,
         category: chunk.category,
         icd11_code: chunk.icd11_code,
+        age_group: chunk.age_group,
+        who_muac_threshold: chunk.who_muac_threshold,
         score,
         confidence_percent,
-        matched_symptoms: Array.from(matchedSymptomsSet).slice(0, 3),
-        matched_visual: Array.from(matchedVisualSet).slice(0, 3),
+        matched_symptoms: Array.from(matched_symptoms).slice(0, 3),
+        matched_visual: Array.from(matched_visual).slice(0, 3),
         immediate_actions: chunk.immediate_actions,
         future_warnings: chunk.future_warnings,
+        nutritional_recommendations: chunk.nutritional_recommendations
       });
     }
   }
 
-  // Sort by score descending
-  results.sort((a, b) => b.score - a.score);
-
-  return results;
+  return results.sort((a, b) => b.score - a.score).slice(0, 10);
 }
