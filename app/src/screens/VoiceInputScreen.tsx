@@ -66,7 +66,7 @@ export default function VoiceInputScreen() {
           channels: 1,
           bitsPerSample: 16,
           wavFile: 'earlyeyes_recording.wav',
-          audioSource: 6,
+          audioSource: 1, // Standard Microphone (RAW) - Fixes silent/hallucinated recording
         });
         await startRecording();
       }

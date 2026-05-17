@@ -18,13 +18,14 @@ import HistoryScreen from '../screens/HistoryScreen.tsx';
 import FacilityScreen from '../screens/FacilityScreen.tsx';
 import SettingsScreen from '../screens/SettingsScreen.tsx';
 import type { Assessment } from '../types/assessment';
+import type { FinalAssessmentResult } from '../services/pipeline/AssessmentPipeline';
 
 export type ScanStackParamList = {
   InputMethod: { photoUri?: string; audioUri?: string } | undefined;
   Camera: { photoUri?: string; audioUri?: string } | undefined;
   VoiceInput: { photoUri?: string; audioUri?: string } | undefined;
   Processing: { photoUri?: string; audioUri?: string; text?: string } | undefined;
-  Result: { assessment?: Assessment } | undefined;
+  Result: { result?: FinalAssessmentResult; assessmentId?: string; assessment?: Assessment } | undefined;
 };
 
 export type BottomTabParamList = {

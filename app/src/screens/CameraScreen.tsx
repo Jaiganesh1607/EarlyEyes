@@ -7,7 +7,7 @@ import {
   View,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useIsFocused } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { launchImageLibrary } from 'react-native-image-picker';
 import {
@@ -29,6 +29,7 @@ export default function CameraScreen() {
   const [isCapturing, setIsCapturing] = useState(false);
   const [isFlashOn, setIsFlashOn] = useState(false);
   const photoOutput = usePhotoOutput();
+  const isFocused = useIsFocused();
 
   React.useEffect(() => {
     if (!hasPermission) {
@@ -87,7 +88,7 @@ export default function CameraScreen() {
           <Camera
             style={StyleSheet.absoluteFill}
             device={device}
-            isActive
+            isActive={isFocused}
             outputs={[photoOutput]}
           />
         ) : (

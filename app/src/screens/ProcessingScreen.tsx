@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, SafeAreaView, StyleSheet, Text, View } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -7,12 +7,26 @@ import BrandHeader from '../components/BrandHeader';
 import { saveAssessment } from '../db/AssessmentRepository';
 import { ScanStackParamList } from '../navigation/AppNavigator';
 import type { Assessment } from '../types/assessment';
+import { analyzeChildImage } from '../services/cv/ImageAnalysisService';
+import { useLanguage } from '../i18n';
+
+let initWhisper: any;
+try {
+  initWhisper = require('whisper.rn').initWhisper;
+} catch (e) {
+  console.warn("Whisper.rn JS layer not loaded");
+}
 
 export default function ProcessingScreen() {
   const navigation =
     useNavigation<NativeStackNavigationProp<ScanStackParamList>>();
   const route = useRoute();
   const params = route.params as ScanStackParamList['Processing'] | undefined;
+  const isProcessing = useRef(false);
+
+  // Dynamically fetch the current Application language (e.g. 'ta', 'hi', 'en', 'es')
+  const { language } = useLanguage();
+
   const [progress, setProgress] = useState(0.65);
   const [stepIndex, setStepIndex] = useState(1);
 
@@ -26,55 +40,91 @@ export default function ProcessingScreen() {
     return 'text';
   }, [params?.audioUri, params?.photoUri]);
 
-  const assessment = useMemo<Assessment>(() => {
+  const handleComplete = useCallback(async () => {
+    if (isProcessing.current) return;
+    isProcessing.current = true;
+    console.log('[Processing] Parallel Pipeline Start');
+
+    const imageTask = params?.photoUri 
+      ? analyzeChildImage(params.photoUri).catch(e => ({ analysis_failed: true }))
+      : Promise.resolve(null);
+
+    const audioTask = params?.audioUri && initWhisper
+      ? (async () => {
+          try {
+            const whisperContext = await initWhisper({
+              filePath: require('../../assets/models/ggml-base-q5_1.bin')
+            });
+            const { result } = await whisperContext.transcribe(params.audioUri, {
+              language: 'auto',
+              translate: true,
+              beamSize: 1, // FASTEST: Single beam for clinical descriptions
+              temperature: 0,
+              greedy: true,
+              suppressNonSpeechTokens: true,
+              prompt: "The child has symptoms like headache, eye pain, redness, or swelling.", // Steering for clinical context
+              onProgress: (p: number) => console.log('Whisper:', p)
+            }).promise;
+            return result;
+          } catch (e) {
+            console.error("Whisper error", e);
+            return "";
+          }
+        })()
+      : Promise.resolve("");
+
+    // RUN BOTH IN PARALLEL
+    const [rawCv, transcript] = await Promise.all([imageTask, audioTask]);
+    const cvResult = rawCv as any;
+    console.log('[Processing] Finished Parallel Execution');
+
     const timestamp = Date.now();
     const id = `ee-${timestamp}-${Math.random().toString(36).slice(2, 8)}`;
-    const input_type = params?.photoUri
-      ? 'photo'
-      : params?.audioUri
-        ? 'audio'
-        : 'text';
+    const input_type = params?.photoUri ? 'photo' : params?.audioUri ? 'audio' : 'text';
 
-    const draft: Assessment = {
+    const defaultIndicators = params?.text ? [params.text] : ['Reported symptoms captured.'];
+    const mergedAssessment: any = {
       id,
       timestamp,
-      risk_level: 'monitor',
-      indicators: params?.text
-        ? [params.text]
-        : input_type === 'photo'
-          ? ['Potential reflex irregularity detected.']
-          : ['Reported symptoms captured from audio.'],
-      plain_language: 'Follow-up Recommended',
-      tell_doctor:
-        "I used a screening app that suggested a follow-up. Please review the details and advise next steps.",
+      risk_level: cvResult?.analysis_failed ? 'monitor' : (cvResult?.risk_level || 'monitor'),
+      indicators: cvResult?.indicators?.length ? cvResult.indicators : defaultIndicators,
+      skin_findings: cvResult?.skin_findings || [],
+      efficientnet_flags: cvResult?.efficientnet_flags || [],
+      structural: cvResult?.structural || {
+        arm_wasting_score: 0,
+        rib_visibility_score: 0,
+        limb_symmetry_score: 0,
+        facial_wasting_score: 0,
+        sunken_eyes_score: 0
+      },
+      transcript: (transcript as string) || undefined,
+      rawOutputs: {
+        skin: cvResult?.skin_findings || "No skin findings recorded",
+        efficientnet: cvResult?.efficientnet_flags?.length ? cvResult.efficientnet_flags : "No structural flags",
+        mediapipe: cvResult?.structural || "No MediaPipe tracking values"
+      },
+      plain_language: 'Analysis Complete',
+      tell_doctor: "Please review the details from my child's visual screening.",
       facility_id: 'Pediatric Eye Center',
       language: 'en',
       input_type,
-      confidence: 78,
+      confidence: cvResult?.confidence || 78,
     };
 
-    console.log('[Processing] assessment draft', {
-      id: draft.id,
-      risk: draft.risk_level,
-      input: draft.input_type,
-    });
+    await saveAssessment(mergedAssessment);
+    setProgress(1);
+    setStepIndex(3);
+    setTimeout(() => {
+      navigation.navigate('Result', { assessment: mergedAssessment });
+    }, 500);
 
-    return draft;
-  }, [params?.audioUri, params?.photoUri, params?.text]);
-
-  const handleComplete = useCallback(async () => {
-    console.log('[Processing] handleComplete');
-    await saveAssessment(assessment);
-    navigation.navigate('Result', { assessment });
-  }, [assessment, navigation]);
+  }, [params, navigation]);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      void handleComplete();
-    }, 1800);
-
-    return () => clearTimeout(timer);
+    void handleComplete();
   }, [handleComplete]);
+
+
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -119,7 +169,7 @@ export default function ProcessingScreen() {
             <Text style={styles.stepText}>Analyzing {inputLabel}...</Text>
           </View>
 
-          <View style={[styles.stepRow, stepIndex >= 2 && styles.stepRowActive]}> 
+          <View style={[styles.stepRow, stepIndex >= 2 && styles.stepRowActive]}>
             <View style={[styles.stepIcon, styles.stepIconCurrent]}>
               <Icon name="timer-sand" size={16} color="#1D4ED8" />
             </View>
