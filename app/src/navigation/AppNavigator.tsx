@@ -19,13 +19,23 @@ import FacilityScreen from '../screens/FacilityScreen.tsx';
 import SettingsScreen from '../screens/SettingsScreen.tsx';
 import type { Assessment } from '../types/assessment';
 import type { FinalAssessmentResult } from '../services/pipeline/AssessmentPipeline';
+import type { AnalysisResult } from '../services/cv/ImageAnalysisService';
+import type { DiseaseChunk } from '../services/rag/ChunkLoader';
 
 export type ScanStackParamList = {
   InputMethod: { photoUri?: string; audioUri?: string } | undefined;
   Camera: { photoUri?: string; audioUri?: string } | undefined;
   VoiceInput: { photoUri?: string; audioUri?: string } | undefined;
   Processing: { photoUri?: string; audioUri?: string; text?: string } | undefined;
-  Result: { result?: FinalAssessmentResult; assessmentId?: string; assessment?: Assessment } | undefined;
+  Result: {
+    result?: FinalAssessmentResult;
+    assessmentId?: string;
+    assessment?: Assessment;
+    imageUri?: string;
+    analysis?: AnalysisResult;
+    diagnosis?: string;
+    chunks?: DiseaseChunk[];
+  } | undefined;
 };
 
 export type BottomTabParamList = {

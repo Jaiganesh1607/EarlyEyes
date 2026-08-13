@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  Image,
   Modal,
   Pressable,
   SafeAreaView,
@@ -14,22 +15,27 @@ import { useRoute, type RouteProp, useNavigation } from '@react-navigation/nativ
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import BrandHeader from '../components/BrandHeader';
 import type { ScanStackParamList } from '../navigation/AppNavigator';
-import type { FinalAssessmentResult } from '../services/pipeline/AssessmentPipeline';
-import type { DiseaseMatch } from '../services/rag/DiseaseScorer';
 import { getAssessmentById } from '../db/AssessmentRepository';
 import { useLanguage, t } from '../i18n';
+import type { DiseaseMatch } from '../services/rag/DiseaseScorer';
+import type { AnalysisResult } from '../services/cv/ImageAnalysisService';
+import type { DiseaseChunk } from '../services/rag/ChunkLoader';
 
 export default function ResultScreen() {
   const route = useRoute<RouteProp<ScanStackParamList, 'Result'>>();
-  const navigation = useNavigation<{ navigate: (screen: string, params?: Record<string, unknown>) => void } & Record<string, unknown>>();
+  const navigation = useNavigation<any>();
   const { language } = useLanguage();
   const params = route.params;
 
-  const [assessment, setAssessment] = useState<FinalAssessmentResult | null>(
-    params?.result ?? null
-  );
+  // ── new contract fields ──
+  const imageUri: string | undefined = params?.imageUri;
+  const analysis: AnalysisResult | undefined = params?.analysis;
+  const diagnosis: string | undefined = params?.diagnosis;
+  const chunks: DiseaseChunk[] | undefined = params?.chunks;
+
+  // ── legacy fallback: assessment object ──
+  const [assessment, setAssessment] = useState<any>(params?.result ?? null);
   const [loading, setLoading] = useState(false);
-  const [doctorModalVisible, setDoctorModalVisible] = useState(false);
   const [debugVisible, setDebugVisible] = useState(false);
 
   useEffect(() => {
@@ -39,10 +45,10 @@ export default function ResultScreen() {
         .then((stored) => {
           if (stored && stored.tell_doctor) {
             try {
-              const parsed = JSON.parse(stored.tell_doctor) as FinalAssessmentResult;
+              const parsed = JSON.parse(stored.tell_doctor);
               setAssessment(parsed);
             } catch (e) {
-              console.warn('Failed to parse assessment JSON');
+              setAssessment(stored);
             }
           }
         })
@@ -50,241 +56,363 @@ export default function ResultScreen() {
     }
   }, [params?.assessmentId, params?.result]);
 
-  const riskLevel = assessment?.final_risk_level ?? 'ok';
+  // ── derive display data: prefer new contract, fall back to legacy ──
+  const effectiveAnalysis: AnalysisResult | null =
+    analysis ?? assessment?.image_analysis ?? null;
+  const effectiveDiagnosis: string =
+    diagnosis ?? assessment?.diagnosis ?? '';
+  const effectiveChunks: DiseaseChunk[] =
+    chunks ?? [];
+
   const ragResult = assessment?.rag_result ?? null;
-  const topDiseases = ragResult?.top_diseases ?? [];
-  const primaryDisease = ragResult?.primary_disease ?? null;
-  const imageAnalysis = assessment?.image_analysis ?? null;
+  const primaryMatch: DiseaseMatch | null = ragResult?.primary_disease ?? null;
+
+  const riskLevel =
+    effectiveAnalysis?.risk_level ??
+    assessment?.final_risk_level ??
+    assessment?.risk_level ??
+    'ok';
 
   const riskConfig = useMemo(() => {
     switch (riskLevel) {
       case 'urgent':
-        return { bg: '#DC2626', icon: '⚠️', label: t(language, 'risk_urgent') };
+        return { bg: '#B91C1C', icon: 'alert-circle', label: 'Urgent: Medical Review Advised' };
       case 'monitor':
-        return { bg: '#D97706', icon: '⚡', label: t(language, 'risk_monitor') };
+        return { bg: '#D97706', icon: 'clock-outline', label: 'Monitor: Symptoms Noticed' };
       default:
-        return { bg: '#16A34A', icon: '✓', label: t(language, 'risk_ok') };
+        return { bg: '#059669', icon: 'check-circle', label: 'Healthy: No Issues Flagged' };
     }
-  }, [riskLevel, language]);
+  }, [riskLevel]);
 
   const handleCopyDoctorBrief = () => {
-    if (!primaryDisease) return;
-    const brief = `
-EarlyEyes Doctor's Brief
-Disease: ${primaryDisease.disease}
-ICD-11: ${primaryDisease.icd11_code}
-Age Group: ${primaryDisease.age_group}
-MUAC: ${primaryDisease.who_muac_threshold}
-Visual Signs: ${primaryDisease.matched_visual.join(', ')}
-Symptoms: ${primaryDisease.matched_symptoms.join(', ')}
-Actions: ${primaryDisease.immediate_actions.join('; ')}
-    `.trim();
+    const brief = `EarlyEyes Assessment: ${primaryMatch?.disease || effectiveDiagnosis || 'General Condition'}. indicators: ${effectiveAnalysis?.indicators?.join(', ') || 'N/A'}`;
     Clipboard.setString(brief);
   };
 
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#1D4ED8" />
-      </View>
-    );
-  }
+  if (loading) return <View style={styles.loading}><ActivityIndicator size="large" color="#1D4ED8" /></View>;
 
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.scroll}>
         <View style={styles.header}>
-          <BrandHeader size={28} />
+          <BrandHeader size={26} layout="row" />
           <Pressable onPress={() => navigation.navigate('Scan')}>
-            <Icon name="close" size={28} color="#000" />
+            <Icon name="menu" size={26} color="#1F2937" />
           </Pressable>
         </View>
 
-        {/* Section 1: Risk Banner */}
+        {/* 1. RISK BANNER */}
         <View style={[styles.riskBanner, { backgroundColor: riskConfig.bg }]}>
-          <Text style={styles.riskIcon}>{riskConfig.icon}</Text>
-          <View>
-            <Text style={styles.riskText}>{riskConfig.label}</Text>
-            <Text style={styles.detectedVia}>
-              {t(language, 'detected_via')} {ragResult?.matched_by ?? 'none'}
+          <Icon name={riskConfig.icon} size={24} color="#FFF" />
+          <Text style={styles.riskText}>{riskConfig.label}</Text>
+        </View>
+
+        {/* 2. CAPTURED IMAGE */}
+        {imageUri ? (
+          <View style={styles.imageCard}>
+            <Text style={styles.sectionTitle}>Captured Image</Text>
+            <Image source={{ uri: imageUri }} style={styles.capturedImage} resizeMode="contain" />
+          </View>
+        ) : null}
+
+        {/* 3. PRIMARY DIAGNOSTIC CARD */}
+        <View style={styles.primaryCard}>
+          <View style={[styles.accentBar, { backgroundColor: riskConfig.bg }]} />
+          <View style={styles.iconCircle}>
+            <Icon name="eye-outline" size={28} color={riskConfig.bg} />
+          </View>
+          <View style={styles.cardContent}>
+            <Text style={styles.primaryTitle}>
+              {primaryMatch?.disease || effectiveDiagnosis || 'Condition Analysis'}
+            </Text>
+            <Text style={styles.primaryDate}>
+              Scan taken {new Date(assessment?.timestamp || Date.now()).toLocaleDateString()}
             </Text>
           </View>
         </View>
 
-        {/* Section 2: Possible Conditions */}
-        <Text style={styles.sectionTitle}>{t(language, 'possible_conditions')}</Text>
-        {topDiseases.length > 0 ? (
-          topDiseases.map((d) => <DiseaseCard key={d.id} disease={d} language={language} />)
-        ) : (
-          <Text style={styles.emptyText}>{t(language, 'no_conditions_found')}</Text>
-        )}
-
-        {/* Section 3: What We Noticed */}
-        <Text style={styles.sectionTitle}>{t(language, 'what_noticed')}</Text>
-        {imageAnalysis && imageAnalysis.indicators.length > 0 ? (
-          imageAnalysis.indicators.map((ind, i) => (
-            <View key={i} style={[styles.indicatorCard, { borderLeftColor: riskConfig.bg }]}>
-              <Text style={styles.indicatorText}>• {ind}</Text>
-            </View>
-          ))
-        ) : (
-          <Text style={styles.emptyText}>{t(language, 'no_image_analysis')}</Text>
-        )}
-
-        {/* Section 4: What To Do Right Now */}
-        <Text style={styles.sectionTitle}>{t(language, 'immediate_actions')}</Text>
-        {primaryDisease ? (
-          primaryDisease.immediate_actions.map((act, i) => (
-            <Text key={i} style={styles.actionText}>{i + 1}. {act}</Text>
-          ))
-        ) : (
-          <Text style={styles.emptyText}>{t(language, 'describe_symptoms_prompt')}</Text>
-        )}
-
-        {/* Section 5: Warning Signs */}
-        {primaryDisease && primaryDisease.future_warnings.length > 0 && (
+        {/* 4. STRUCTURED IMAGE ANALYSIS */}
+        {effectiveAnalysis ? (
           <>
-            <Text style={[styles.sectionTitle, { color: '#B45309' }]}>{t(language, 'future_warnings')}</Text>
-            {primaryDisease.future_warnings.slice(0, 4).map((warn, i) => (
-              <Text key={i} style={styles.warningText}>⚠️ {warn}</Text>
+            <Text style={styles.sectionTitle}>Image Analysis Results</Text>
+
+            {/* Indicators */}
+            {effectiveAnalysis.indicators?.length ? (
+              <>
+                <Text style={styles.subsectionLabel}>Visual Indicators</Text>
+                {effectiveAnalysis.indicators.map((ind: string, i: number) => (
+                  <View key={i} style={styles.indicatorRow}>
+                    <View style={styles.blueDot} />
+                    <Text style={styles.indicatorText}>{ind}</Text>
+                  </View>
+                ))}
+              </>
+            ) : null}
+
+            {/* Skin Findings */}
+            {effectiveAnalysis.skin_findings?.length ? (
+              <>
+                <Text style={styles.subsectionLabel}>Skin Findings</Text>
+                {effectiveAnalysis.skin_findings.map((sf, i) => (
+                  <View key={i} style={styles.findingRow}>
+                    <Icon name="skin" size={16} color="#6B7280" />
+                    <Text style={styles.findingName}>{sf.name}</Text>
+                    <Text style={styles.findingConf}>{(sf.confidence * 100).toFixed(0)}%</Text>
+                  </View>
+                ))}
+              </>
+            ) : null}
+
+            {/* EfficientNet Flags */}
+            {effectiveAnalysis.efficientnet_flags?.length ? (
+              <>
+                <Text style={styles.subsectionLabel}>Model Flags</Text>
+                {effectiveAnalysis.efficientnet_flags.map((flag: string, i: number) => (
+                  <View key={i} style={styles.flagChip}>
+                    <Text style={styles.flagText}>{flag}</Text>
+                  </View>
+                ))}
+              </>
+            ) : null}
+
+            {/* Structural Scores */}
+            <Text style={styles.subsectionLabel}>Structural Assessment</Text>
+            <View style={styles.structuralGrid}>
+              {([
+                ['Arm Wasting', effectiveAnalysis.structural.arm_wasting_score],
+                ['Rib Visibility', effectiveAnalysis.structural.rib_visibility_score],
+                ['Limb Symmetry', effectiveAnalysis.structural.limb_symmetry_score],
+                ['Facial Wasting', effectiveAnalysis.structural.facial_wasting_score],
+                ['Sunken Eyes', effectiveAnalysis.structural.sunken_eyes_score],
+              ] as [string, number][]).map(([label, score]) => (
+                <View key={label} style={styles.structuralItem}>
+                  <Text style={styles.structuralLabel}>{label}</Text>
+                  <View style={styles.scoreBarTrack}>
+                    <View style={[styles.scoreBarFill, { width: `${Math.min(score * 100, 100)}%` }]} />
+                  </View>
+                  <Text style={styles.scoreValue}>{score.toFixed(2)}</Text>
+                </View>
+              ))}
+            </View>
+
+            {/* Confidence */}
+            <View style={styles.confidenceRow}>
+              <Text style={styles.confidenceLabel}>Analysis Confidence</Text>
+              <Text style={styles.confidenceValue}>
+                {((effectiveAnalysis.confidence ?? 0) * 100).toFixed(0)}%
+              </Text>
+            </View>
+          </>
+        ) : (
+          <Text style={styles.empty}>No image analysis data available.</Text>
+        )}
+
+        {/* 5. LLM DIAGNOSIS */}
+        {effectiveDiagnosis ? (
+          <>
+            <Text style={styles.sectionTitle}>AI Diagnosis</Text>
+            <View style={styles.diagnosisBox}>
+              <Icon name="robot-outline" size={20} color="#1D4ED8" style={styles.diagnosisIcon} />
+              <Text style={styles.diagnosisText}>{effectiveDiagnosis}</Text>
+            </View>
+          </>
+        ) : null}
+
+        {/* 6. WHAT WE NOTICED (legacy fallback) */}
+        {!effectiveAnalysis?.indicators?.length && assessment?.image_analysis?.indicators?.length ? (
+          <>
+            <Text style={styles.sectionTitle}>What We Noticed</Text>
+            {assessment.image_analysis.indicators.map((ind: string, i: number) => (
+              <View key={i} style={styles.indicatorRow}>
+                <View style={styles.blueDot} />
+                <Text style={styles.indicatorText}>{ind}</Text>
+              </View>
             ))}
           </>
-        )}
+        ) : null}
 
-        {/* Section 6: Doctor Button */}
-        <Pressable style={styles.doctorButton} onPress={() => setDoctorModalVisible(true)}>
-          <Text style={styles.doctorButtonText}>What To Tell The Doctor</Text>
+        {/* 7. DOCTOR BRIEF */}
+        <Text style={styles.sectionTitle}>What To Tell Your Doctor</Text>
+        <View style={styles.briefBox}>
+          <View style={styles.briefBorder} />
+          <Text style={styles.briefText}>
+            "I used a screening app that flagged a potential {primaryMatch?.disease || effectiveDiagnosis || 'symptom'} in my child. 
+            The system noticed: {effectiveAnalysis?.indicators?.[0] || 'visual changes'}. 
+            I request a clinical review."
+          </Text>
+        </View>
+        <Pressable style={styles.copyBtn} onPress={handleCopyDoctorBrief}>
+          <Icon name="content-copy" size={20} color="#065F46" />
+          <Text style={styles.copyText}>Copy Message</Text>
         </Pressable>
 
-        {/* DEBUG TOGGLE */}
-        <Pressable 
-          onLongPress={() => setDebugVisible(!debugVisible)} 
-          style={{ marginTop: 20, padding: 10, alignItems: 'center' }}
-        >
-          <Text style={{ color: '#DDD', fontSize: 10 }}>[Dev mode: Long press for raw output]</Text>
+        {/* 8. RAG CHUNK ATTRIBUTION */}
+        {effectiveChunks.length > 0 ? (
+          <>
+            <Text style={styles.sectionTitle}>Sources</Text>
+            <Text style={styles.subsectionLabel}>
+              Knowledge base entries used for this diagnosis:
+            </Text>
+            {effectiveChunks.map((chunk) => (
+              <View key={chunk.id} style={styles.sourceCard}>
+                <View style={styles.sourceHeader}>
+                  <Icon name="book-open-variant" size={18} color="#1D4ED8" />
+                  <Text style={styles.sourceDisease}>{chunk.disease}</Text>
+                  <View style={styles.sourceCategory}>
+                    <Text style={styles.sourceCategoryText}>{chunk.category}</Text>
+                  </View>
+                </View>
+                <Text style={styles.sourceDesc} numberOfLines={3}>
+                  {chunk.description}
+                </Text>
+                {chunk.metadata?.sources?.length ? (
+                  <View style={styles.sourceLinks}>
+                    {chunk.metadata.sources.map((src, i) => (
+                      <View key={i} style={styles.sourceLinkRow}>
+                        <Icon name="link-variant" size={12} color="#6B7280" />
+                        <Text style={styles.sourceLinkLabel}>{src.label}</Text>
+                      </View>
+                    ))}
+                  </View>
+                ) : null}
+                {chunk.icd11_code ? (
+                  <Text style={styles.icdCode}>ICD-11: {chunk.icd11_code}</Text>
+                ) : null}
+              </View>
+            ))}
+          </>
+        ) : null}
+
+        {/* 9. NEAREST FACILITY */}
+        <Text style={styles.sectionTitle}>Nearest Specialist Facility</Text>
+        <View style={styles.mapPlaceholder}>
+          <View style={styles.pinBg}>
+            <Icon name="map-marker" size={32} color="#B91C1C" />
+          </View>
+        </View>
+        <View style={styles.facilityFooter}>
+          <Text style={styles.facilityName}>Pediatric Eye Center</Text>
+          <Icon name="send-circle" size={40} color="#1D4ED8" />
+        </View>
+
+        {/* 10. DEBUG */}
+        <Pressable onLongPress={() => setDebugVisible(!debugVisible)} style={styles.debugTrigger}>
+          <Text style={styles.debugTriggerText}>Pipeline Version 4.5.1 (Offline Verified)</Text>
         </Pressable>
 
         {debugVisible && (
           <View style={styles.debugPanel}>
-            <Text style={styles.debugHeader}>RAW PIPELINE OUTPUT</Text>
-            <Text style={styles.debugLabel}>Image Analysis:</Text>
-            <Text style={styles.debugText}>{JSON.stringify(imageAnalysis, null, 2)}</Text>
-            <Text style={styles.debugLabel}>Voice Transcript:</Text>
-            <Text style={styles.debugText}>{assessment?.raw_voice}</Text>
-            <Text style={styles.debugLabel}>Text Input:</Text>
-            <Text style={styles.debugText}>{assessment?.raw_text}</Text>
-            <Text style={styles.debugLabel}>RAG Results (all):</Text>
-            <Text style={styles.debugText}>{JSON.stringify(ragResult, null, 2)}</Text>
+            <Text style={styles.debugLabel}>TRANSCRIPT:</Text>
+            <Text style={styles.debugCode}>{assessment?.raw_voice || 'None'}</Text>
+            <Text style={styles.debugLabel}>MATCHES:</Text>
+            {ragResult?.top_diseases?.map((d: any) => (
+              <Text key={d.id} style={styles.debugCode}>- {d.disease} ({d.confidence_percent}%)</Text>
+            ))}
+            <Text style={styles.debugLabel}>CHUNKS USED:</Text>
+            {effectiveChunks.length > 0
+              ? effectiveChunks.map((c) => (
+                  <Text key={c.id} style={styles.debugCode}>- {c.disease} ({c.category})</Text>
+                ))
+              : <Text style={styles.debugCode}>None</Text>}
           </View>
         )}
       </ScrollView>
 
-      {/* Section 7: Disclaimer */}
       <View style={styles.disclaimer}>
-        <Text style={styles.disclaimerText}>{t(language, 'disclaimer')}</Text>
+        <Text style={styles.disclaimerText}>EarlyEyes is a screening aid, not a medical diagnosis.</Text>
       </View>
-
-      {/* Modal */}
-      <Modal visible={doctorModalVisible} transparent animationType="slide">
-        <View style={styles.modalBg}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Doctor's Brief</Text>
-            {primaryDisease ? (
-              <ScrollView>
-                <Text style={styles.modalLabel}>Disease: <Text style={styles.modalValue}>{primaryDisease.disease}</Text></Text>
-                <Text style={styles.modalLabel}>ICD-11: <Text style={styles.modalValue}>{primaryDisease.icd11_code}</Text></Text>
-                <Text style={styles.modalLabel}>Age Group: <Text style={styles.modalValue}>{primaryDisease.age_group}</Text></Text>
-                {primaryDisease.who_muac_threshold && (
-                  <Text style={styles.modalLabel}>MUAC: <Text style={styles.modalValue}>{primaryDisease.who_muac_threshold}</Text></Text>
-                )}
-                <Text style={styles.modalLabel}>{t(language, 'visual_signs')}:</Text>
-                <Text style={styles.modalValue}>{primaryDisease.matched_visual.join(', ')}</Text>
-                <Text style={styles.modalLabel}>{t(language, 'matched_symptoms')}:</Text>
-                <Text style={styles.modalValue}>{primaryDisease.matched_symptoms.join(', ')}</Text>
-                <Text style={styles.modalLabel}>Recommended Actions:</Text>
-                {primaryDisease.immediate_actions.map((act, i) => (
-                  <Text key={i} style={styles.modalListItem}>{i + 1}. {act}</Text>
-                ))}
-              </ScrollView>
-            ) : null}
-            <View style={styles.modalActions}>
-              <Pressable style={styles.copyBtn} onPress={handleCopyDoctorBrief}>
-                <Text style={styles.copyBtnText}>Copy Brief</Text>
-              </Pressable>
-              <Pressable style={styles.closeBtn} onPress={() => setDoctorModalVisible(false)}>
-                <Text style={styles.closeBtnText}>Close</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
     </SafeAreaView>
   );
 }
 
-function DiseaseCard({ disease, language }: { disease: DiseaseMatch; language: string }) {
-  const confColor = disease.confidence_percent > 70 ? '#DC2626' : disease.confidence_percent > 40 ? '#D97706' : '#16A34A';
-  return (
-    <View style={styles.diseaseCard}>
-      <Text style={styles.diseaseName}>{disease.disease}</Text>
-      <View style={styles.categoryBadge}><Text style={styles.categoryText}>{disease.category}</Text></View>
-      <Text style={styles.ageText}>{t(language, 'age_group')}: {disease.age_group}</Text>
-      {disease.who_muac_threshold && <Text style={styles.ageText}>MUAC: {disease.who_muac_threshold}</Text>}
-      
-      <View style={styles.confTrack}><View style={[styles.confFill, { width: `${disease.confidence_percent}%`, backgroundColor: confColor }]} /></View>
-      <Text style={[styles.confText, { color: confColor }]}>{disease.confidence_percent}% match</Text>
-      
-      {disease.matched_visual.length > 0 && (
-        <Text style={styles.signText}>{t(language, 'visual_signs')}: {disease.matched_visual.join(', ')}</Text>
-      )}
-      {disease.matched_symptoms.length > 0 && (
-        <Text style={styles.signText}>{t(language, 'matched_symptoms')}: {disease.matched_symptoms.join(', ')}</Text>
-      )}
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FFF' },
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  scroll: { padding: 16, paddingBottom: 40 },
+  container: { flex: 1, backgroundColor: '#FAF7F5' },
+  loading: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  scroll: { padding: 20, paddingBottom: 80 },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
-  riskBanner: { borderRadius: 8, padding: 20, flexDirection: 'row', alignItems: 'center', gap: 16, marginBottom: 16 },
-  riskIcon: { fontSize: 32 },
-  riskText: { color: '#FFF', fontWeight: 'bold', fontSize: 18 },
-  detectedVia: { color: '#FFF', fontSize: 12, opacity: 0.9 },
-  sectionTitle: { fontSize: 18, fontWeight: '800', marginTop: 16, marginBottom: 12, color: '#111' },
-  diseaseCard: { backgroundColor: '#FFF', borderRadius: 8, padding: 12, marginBottom: 12, elevation: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4 },
-  diseaseName: { fontSize: 16, fontWeight: 'bold', color: '#111' },
-  categoryBadge: { backgroundColor: '#F3F4F6', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 12, alignSelf: 'flex-start', marginTop: 4 },
-  categoryText: { fontSize: 11, color: '#374151' },
-  ageText: { fontSize: 12, color: '#6B7280', marginTop: 4 },
-  confTrack: { height: 6, backgroundColor: '#E5E7EB', borderRadius: 3, marginTop: 8 },
-  confFill: { height: '100%', borderRadius: 3 },
-  confText: { fontSize: 12, fontWeight: 'bold', textAlign: 'right', marginTop: 2 },
-  signText: { fontSize: 12, color: '#6B7280', fontStyle: 'italic', marginTop: 4 },
-  indicatorCard: { padding: 12, backgroundColor: '#F9FAFB', borderLeftWidth: 4, marginBottom: 8, borderRadius: 4 },
-  indicatorText: { fontSize: 14, color: '#374151' },
-  actionText: { fontSize: 14, color: '#374151', marginBottom: 6 },
-  warningText: { fontSize: 13, color: '#92400E', marginBottom: 6 },
-  emptyText: { color: '#9CA3AF', fontStyle: 'italic' },
-  doctorButton: { backgroundColor: '#1D4ED8', padding: 14, borderRadius: 8, alignItems: 'center', marginTop: 16 },
-  doctorButtonText: { color: '#FFF', fontWeight: 'bold', fontSize: 16 },
-  disclaimer: { backgroundColor: '#FEF3C7', borderTopWidth: 1, borderTopColor: '#D97706', padding: 12, position: 'absolute', bottom: 0, left: 0, right: 0 },
-  disclaimerText: { fontSize: 12, color: '#92400E', textAlign: 'center' },
-  modalBg: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 20 },
-  modalContent: { backgroundColor: '#FFF', borderRadius: 12, padding: 20, maxHeight: '80%' },
-  modalTitle: { fontSize: 20, fontWeight: 'bold', marginBottom: 16, textAlign: 'center' },
-  modalLabel: { fontSize: 14, fontWeight: 'bold', marginTop: 8, color: '#374151' },
-  modalValue: { fontWeight: 'normal', color: '#111' },
-  modalListItem: { fontSize: 14, color: '#111', marginLeft: 8, marginTop: 4 },
-  modalActions: { marginTop: 20, gap: 10 },
-  copyBtn: { backgroundColor: '#1D4ED8', padding: 12, borderRadius: 8, alignItems: 'center' },
-  copyBtnText: { color: '#FFF', fontWeight: 'bold' },
-  closeBtn: { padding: 12, alignItems: 'center' },
-  closeBtnText: { color: '#6B7280' },
-  debugPanel: { marginTop: 20, padding: 12, backgroundColor: '#F0F0F0', borderRadius: 8, borderStyle: 'dashed', borderWidth: 1, borderColor: '#CCC' },
-  debugHeader: { fontWeight: 'bold', color: '#666', marginBottom: 8 },
-  debugLabel: { fontWeight: 'bold', marginTop: 8, fontSize: 12 },
-  debugText: { fontSize: 10, color: '#444', fontFamily: 'monospace' },
+  riskBanner: { borderRadius: 12, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 20 },
+  riskText: { color: '#FFF', fontWeight: '800', fontSize: 17 },
+
+  // Captured image
+  imageCard: { marginBottom: 20 },
+  capturedImage: { width: '100%', height: 240, borderRadius: 16, backgroundColor: '#E5E7EB' },
+
+  // Primary card
+  primaryCard: { backgroundColor: '#FFF', borderRadius: 16, padding: 20, flexDirection: 'row', alignItems: 'center', gap: 16, elevation: 4, shadowOpacity: 0.1, shadowRadius: 10, shadowColor: '#000', shadowOffset: { width:0, height:4 }, marginBottom: 20 },
+  accentBar: { width: 4, height: 50, borderRadius: 2, position: 'absolute', left: 10 },
+  iconCircle: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#FAF7F5', alignItems: 'center', justifyContent: 'center', marginLeft: 10 },
+  cardContent: { flex: 1 },
+  primaryTitle: { fontSize: 18, fontWeight: '800', color: '#1C1A19' },
+  primaryDate: { fontSize: 12, color: '#6B7280', marginTop: 4 },
+
+  // Section titles
+  sectionTitle: { fontSize: 18, fontWeight: '800', color: '#1E3A8A', marginTop: 32, marginBottom: 16 },
+  subsectionLabel: { fontSize: 13, fontWeight: '700', color: '#4B5563', marginBottom: 8, marginTop: 4, textTransform: 'uppercase', letterSpacing: 0.5 },
+
+  // Indicators
+  indicatorRow: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#F0F4F8', padding: 16, borderRadius: 12, marginBottom: 8 },
+  blueDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#3B82F6' },
+  indicatorText: { fontSize: 14, color: '#1F2937', fontWeight: '600', flex: 1 },
+
+  // Skin findings
+  findingRow: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#FFF', padding: 12, borderRadius: 10, marginBottom: 6, borderWidth: 1, borderColor: '#E5E7EB' },
+  findingName: { flex: 1, fontSize: 14, color: '#1F2937', fontWeight: '600' },
+  findingConf: { fontSize: 13, color: '#059669', fontWeight: '700' },
+
+  // EfficientNet flags
+  flagChip: { alignSelf: 'flex-start', backgroundColor: '#DBEAFE', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, marginBottom: 6, marginRight: 6 },
+  flagText: { fontSize: 12, color: '#1E40AF', fontWeight: '600' },
+
+  // Structural scores
+  structuralGrid: { backgroundColor: '#FFF', borderRadius: 12, padding: 16, borderWidth: 1, borderColor: '#E5E7EB', gap: 10 },
+  structuralItem: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  structuralLabel: { width: 110, fontSize: 12, color: '#4B5563', fontWeight: '600' },
+  scoreBarTrack: { flex: 1, height: 8, borderRadius: 4, backgroundColor: '#E5E7EB', overflow: 'hidden' },
+  scoreBarFill: { height: '100%', backgroundColor: '#3B82F6', borderRadius: 4 },
+  scoreValue: { width: 40, fontSize: 12, color: '#1F2937', fontWeight: '700', textAlign: 'right' },
+
+  // Confidence
+  confidenceRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#F0FDF4', padding: 14, borderRadius: 10, marginTop: 12, borderWidth: 1, borderColor: '#BBF7D0' },
+  confidenceLabel: { fontSize: 14, fontWeight: '600', color: '#065F46' },
+  confidenceValue: { fontSize: 16, fontWeight: '800', color: '#059669' },
+
+  // LLM Diagnosis
+  diagnosisBox: { backgroundColor: '#EFF6FF', borderRadius: 14, padding: 18, flexDirection: 'row', gap: 12, borderWidth: 1, borderColor: '#BFDBFE', marginBottom: 8 },
+  diagnosisIcon: { marginTop: 2 },
+  diagnosisText: { flex: 1, fontSize: 14, color: '#1E3A8A', lineHeight: 20 },
+
+  // Doctor brief
+  briefBox: { backgroundColor: '#F3F4F6', borderRadius: 14, padding: 18, flexDirection: 'row', marginBottom: 12 },
+  briefBorder: { width: 3, height: '100%', backgroundColor: '#3B82F6', marginRight: 12 },
+  briefText: { flex: 1, fontSize: 13, color: '#4B5563', fontStyle: 'italic', lineHeight: 18 },
+  copyBtn: { backgroundColor: '#D1FAE5', padding: 14, borderRadius: 12, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8, borderWidth: 1, borderColor: '#A7F3D0' },
+  copyText: { color: '#065F46', fontWeight: '800', fontSize: 14 },
+
+  // RAG Sources
+  sourceCard: { backgroundColor: '#FFF', borderRadius: 14, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: '#E5E7EB', elevation: 2, shadowOpacity: 0.05, shadowRadius: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 2 } },
+  sourceHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
+  sourceDisease: { flex: 1, fontSize: 15, fontWeight: '700', color: '#1F2937' },
+  sourceCategory: { backgroundColor: '#F3F4F6', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
+  sourceCategoryText: { fontSize: 11, color: '#6B7280', fontWeight: '600' },
+  sourceDesc: { fontSize: 13, color: '#4B5563', lineHeight: 18, marginBottom: 8 },
+  sourceLinks: { gap: 4, marginBottom: 6 },
+  sourceLinkRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  sourceLinkLabel: { fontSize: 12, color: '#3B82F6', textDecorationLine: 'underline' },
+  icdCode: { fontSize: 11, color: '#9CA3AF', fontWeight: '600', marginTop: 4 },
+
+  // Facility
+  mapPlaceholder: { height: 180, backgroundColor: '#D1D5DB', borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+  pinBg: { width: 56, height: 56, borderRadius: 28, backgroundColor: 'rgba(255,255,255,0.4)', alignItems: 'center', justifyContent: 'center' },
+  facilityFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 12, marginBottom: 20 },
+  facilityName: { fontSize: 16, fontWeight: '700', color: '#1F2937' },
+
+  // Misc
+  disclaimer: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: '#FEF3C7', padding: 10, borderTopWidth: 1, borderTopColor: '#FDE68A' },
+  disclaimerText: { fontSize: 10, color: '#92400E', textAlign: 'center' },
+  empty: { color: '#9CA3AF', fontStyle: 'italic', marginBottom: 12 },
+  debugTrigger: { marginTop: 30, padding: 20 },
+  debugTriggerText: { color: '#CCC', fontSize: 10, textAlign: 'center' },
+  debugPanel: { marginTop: 10, padding: 16, backgroundColor: '#111', borderRadius: 12 },
+  debugLabel: { color: '#FFD700', fontWeight: 'bold', fontSize: 10, marginBottom: 4 },
+  debugCode: { color: '#00FF00', fontSize: 11, fontFamily: 'monospace', marginBottom: 6 }
 });

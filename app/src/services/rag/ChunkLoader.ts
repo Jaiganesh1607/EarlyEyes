@@ -1,4 +1,4 @@
-import chunksData from '../../assets/rag/chunk_map.json';
+import chunksData from '../../../assets/rag/chunk_map.json';
 
 export interface DiseaseChunk {
   id: string;

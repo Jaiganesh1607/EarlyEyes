@@ -22,6 +22,10 @@ import java.nio.ByteOrder;
 import java.nio.MappedByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 import org.tensorflow.lite.Interpreter;
 
@@ -44,6 +48,7 @@ public class ImageAnalysisModule extends ReactContextBaseJavaModule {
   private static Interpreter efficientNetInterpreter = null;
   private static PoseLandmarker poseLandmarker = null;
   private static FaceLandmarker faceLandmarker = null;
+  private static final ExecutorService executor = Executors.newFixedThreadPool(4);
 
   public ImageAnalysisModule(ReactApplicationContext reactContext) {
     super(reactContext);
@@ -56,7 +61,8 @@ public class ImageAnalysisModule extends ReactContextBaseJavaModule {
 
   @ReactMethod
   public void analyzeImage(String imagePath, Promise promise) {
-    boolean anyPipelineSuccessful = false;
+    executor.submit(() -> {
+      boolean anyPipelineSuccessful = false;
     
     // Skin findings data
     List<SkinFinding> skinFindingsList = new ArrayList<>();
@@ -81,225 +87,232 @@ public class ImageAnalysisModule extends ReactContextBaseJavaModule {
         return;
       }
 
-      // ==========================================
-      // PIPELINE 1: Skin Lesion Model
-      // ==========================================
-      try {
-        long startTime = System.currentTimeMillis();
-        if (skinLesionInterpreter == null) {
-            MappedByteBuffer skinModelBuffer = loadModelFile(ctx, "models/skin_lesion.tflite");
-            Interpreter.Options options = new Interpreter.Options();
-            options.setNumThreads(4);
-            options.setUseNNAPI(true); // GPU/NPU acceleration
-            skinLesionInterpreter = new Interpreter(skinModelBuffer, options);
-        }
+      final Bitmap finalBitmap = bitmap;
+      List<Future<Void>> futures = new ArrayList<>();
 
-        Bitmap resizedSkin = Bitmap.createScaledBitmap(bitmap, 224, 224, true);
-        org.tensorflow.lite.Tensor inTensor = skinLesionInterpreter.getInputTensor(0);
-        boolean isSkinQuant = (inTensor.dataType() == org.tensorflow.lite.DataType.UINT8 || inTensor.dataType() == org.tensorflow.lite.DataType.INT8);
-
-        ByteBuffer skinInput;
-        if (isSkinQuant) {
-            skinInput = ByteBuffer.allocateDirect(1 * 224 * 224 * 3);
-        } else {
-            skinInput = ByteBuffer.allocateDirect(1 * 224 * 224 * 3 * 4);
-        }
-        skinInput.order(ByteOrder.nativeOrder());
-        
-        int[] pixels = new int[224 * 224];
-        resizedSkin.getPixels(pixels, 0, 224, 0, 0, 224, 224);
-        for (int v : pixels) {
-            if (isSkinQuant) {
-                skinInput.put((byte) ((v >> 16) & 0xFF));
-                skinInput.put((byte) ((v >> 8) & 0xFF));
-                skinInput.put((byte) (v & 0xFF));
-            } else {
-                skinInput.putFloat(((v >> 16) & 0xFF) / 255.0f);
-                skinInput.putFloat(((v >> 8) & 0xFF) / 255.0f);
-                skinInput.putFloat((v & 0xFF) / 255.0f);
+      // Pipeline 1: Skin Lesion Model
+      futures.add(executor.submit(() -> {
+          try {
+            long startTime = System.currentTimeMillis();
+            if (skinLesionInterpreter == null) {
+                synchronized(ImageAnalysisModule.class) {
+                    if (skinLesionInterpreter == null) {
+                        MappedByteBuffer skinModelBuffer = loadModelFile(ctx, "models/skin_lesion.tflite");
+                        Interpreter.Options options = new Interpreter.Options();
+                        options.setNumThreads(2);
+                        options.setUseNNAPI(true); // GPU/NPU acceleration
+                        skinLesionInterpreter = new Interpreter(skinModelBuffer, options);
+                    }
+                }
             }
-        }
-        resizedSkin.recycle();
 
-        float[] skinOutFloat = runTensorFlowInference(skinLesionInterpreter, skinInput);
-        Log.i(MODULE_NAME, "Pipeline 1 (Skin) took: " + (System.currentTimeMillis() - startTime) + "ms");
+            Bitmap resizedSkin = Bitmap.createScaledBitmap(finalBitmap, 224, 224, true);
+            org.tensorflow.lite.Tensor inTensor = skinLesionInterpreter.getInputTensor(0);
+            boolean isSkinQuant = (inTensor.dataType() == org.tensorflow.lite.DataType.UINT8 || inTensor.dataType() == org.tensorflow.lite.DataType.INT8);
 
-        String[] classNames = {
-            "Actinic Keratosis", "Basal Cell Carcinoma", "Benign Keratosis", 
-            "Dermatofibroma", "Melanoma", "Melanocytic Nevi", "Vascular Lesion"
-        };
-        
-        for (int i = 0; i < Integer.min(7, skinOutFloat.length); i++) {
-            if (skinOutFloat[i] > 0.05f) {
-                skinFindingsList.add(new SkinFinding(classNames[i], skinOutFloat[i]));
-            }
-        }
-        anyPipelineSuccessful = true;
-      } catch (Exception e) {
-        Log.e(MODULE_NAME, "Pipeline 1 failed", e);
-      }
-
-      // ==========================================
-      // PIPELINE 2: EfficientNet-Lite4
-      // ==========================================
-      try {
-        long effStartTime = System.currentTimeMillis();
-        if (efficientNetInterpreter == null) {
-            MappedByteBuffer effModelBuffer = loadModelFile(ctx, "models/efficientnet_lite4.tflite");
-            Interpreter.Options options = new Interpreter.Options();
-            options.setNumThreads(4);
-            options.setUseNNAPI(true);
-            efficientNetInterpreter = new Interpreter(effModelBuffer, options);
-        }
-
-        Bitmap resizedEff = Bitmap.createScaledBitmap(bitmap, 320, 320, true);
-        org.tensorflow.lite.Tensor effInTensor = efficientNetInterpreter.getInputTensor(0);
-        boolean isEffQuant = (effInTensor.dataType() == org.tensorflow.lite.DataType.UINT8 || effInTensor.dataType() == org.tensorflow.lite.DataType.INT8);
-
-        ByteBuffer effInput;
-        if (isEffQuant) {
-            effInput = ByteBuffer.allocateDirect(320 * 320 * 3);
-        } else {
-            effInput = ByteBuffer.allocateDirect(320 * 320 * 3 * 4);
-        }
-        effInput.order(ByteOrder.nativeOrder());
-        
-        int[] pixelsEff = new int[320 * 320];
-        resizedEff.getPixels(pixelsEff, 0, 320, 0, 0, 320, 320);
-        for (int v : pixelsEff) {
-            if (isEffQuant) {
-                effInput.put((byte) ((v >> 16) & 0xFF));
-                effInput.put((byte) ((v >> 8) & 0xFF));
-                effInput.put((byte) (v & 0xFF));
-            } else {
-                effInput.putFloat((((v >> 16) & 0xFF) / 127.5f) - 1.0f);
-                effInput.putFloat((((v >> 8) & 0xFF) / 127.5f) - 1.0f);
-                effInput.putFloat(((v & 0xFF) / 127.5f) - 1.0f);
-            }
-        }
-        resizedEff.recycle();
-
-        // Check model input requirements. If model expects INT8 output won't match, but we must try.
-        // I will use float output to be safe against varying implementations, but if the model is int8 the user might have provided a float-compiled int8-quantized model. 
-        // We'll prepare output array dynamically to prevent crashes.
-        float[] effOutFloat = runTensorFlowInference(efficientNetInterpreter, effInput);
-        Log.i(MODULE_NAME, "Pipeline 2 (EffNet) took: " + (System.currentTimeMillis() - effStartTime) + "ms");
-        
-        // Note: EfficientNet has 1000 classes. A 2% confidence on a single class is statistically significant!
-        // 951-980 range
-        if (checkRange(effOutFloat, 951, 980, 0.02f)) efficientNetFlags.add("skin_texture_abnormality");
-        // 281-294 range
-        if (checkRange(effOutFloat, 281, 294, 0.02f)) efficientNetFlags.add("hair_abnormality_detected");
-        // 878
-        if (effOutFloat.length > 878 && effOutFloat[878] > 0.02f) efficientNetFlags.add("pallor_or_discoloration");
-        // 367-400
-        if (checkRange(effOutFloat, 367, 400, 0.02f)) efficientNetFlags.add("body_swelling_proxy");
-        // 430-450
-        if (checkRange(effOutFloat, 430, 450, 0.02f)) efficientNetFlags.add("visible_wasting_proxy");
-        
-        anyPipelineSuccessful = true;
-      } catch (Exception e) {
-        Log.e(MODULE_NAME, "Pipeline 2 failed", e);
-      }
-
-      // ==========================================
-      // PIPELINE 3: MediaPipe Pose + Face
-      // ==========================================
-      try {
-        MPImage mpImage = new BitmapImageBuilder(bitmap).build();
-
-        // Pose Landmarker
-        try {
-          if (poseLandmarker == null) {
-              BaseOptions poseOptions = BaseOptions.builder()
-                  .setModelAssetPath("models/pose_landmarker_lite.task")
-                  .setDelegate(Delegate.GPU)
-                  .build();
-              PoseLandmarker.PoseLandmarkerOptions pOptions = PoseLandmarker.PoseLandmarkerOptions.builder()
-                  .setBaseOptions(poseOptions)
-                  .setRunningMode(RunningMode.IMAGE)
-                  .build();
-              poseLandmarker = PoseLandmarker.createFromOptions(ctx, pOptions);
-          }
-          
-          PoseLandmarkerResult poseResult = poseLandmarker.detect(mpImage);
-          if (poseResult.landmarks().size() > 0) {
-            List<NormalizedLandmark> lm = poseResult.landmarks().get(0);
+            ByteBuffer skinInput;
+            if (isSkinQuant) skinInput = ByteBuffer.allocateDirect(1 * 224 * 224 * 3);
+            else skinInput = ByteBuffer.allocateDirect(1 * 224 * 224 * 3 * 4);
+            skinInput.order(ByteOrder.nativeOrder());
             
-            // arm_wasting_score
-            double d11_13 = getDistance(lm.get(11), lm.get(13));
-            double d11_23 = getDistance(lm.get(11), lm.get(23));
-            if (d11_23 > 0) {
-              double ratio = d11_13 / d11_23;
-              if (ratio < 0.35) arm_wasting_score = 0.8;
-              else if (ratio < 0.45) arm_wasting_score = 0.5;
-              else arm_wasting_score = 0.1;
+            int[] pixels = new int[224 * 224];
+            resizedSkin.getPixels(pixels, 0, 224, 0, 0, 224, 224);
+            for (int v : pixels) {
+                if (isSkinQuant) {
+                    skinInput.put((byte) ((v >> 16) & 0xFF));
+                    skinInput.put((byte) ((v >> 8) & 0xFF));
+                    skinInput.put((byte) (v & 0xFF));
+                } else {
+                    skinInput.putFloat(((v >> 16) & 0xFF) / 255.0f);
+                    skinInput.putFloat(((v >> 8) & 0xFF) / 255.0f);
+                    skinInput.putFloat((v & 0xFF) / 255.0f);
+                }
             }
+            resizedSkin.recycle();
 
-            // rib_visibility_score
-            rib_visibility_score = (getVal(lm.get(11).visibility()) + getVal(lm.get(12).visibility()) + 
-                                    getVal(lm.get(23).visibility()) + getVal(lm.get(24).visibility())) / 4.0;
-
-            // limb_symmetry_score
-            double leftArm = d11_13;
-            double rightArm = getDistance(lm.get(12), lm.get(14));
-            double torso = d11_23;
-            if (torso > 0) {
-                double diff = Math.abs(leftArm - rightArm) / torso;
-                double sym = 1.0 - diff;
-                limb_symmetry_score = Math.max(0.0, Math.min(1.0, sym));
+            float[] skinOutFloat;
+            synchronized(skinLesionInterpreter) {
+               skinOutFloat = runTensorFlowInference(skinLesionInterpreter, skinInput);
             }
-          }
-        } catch (Exception e) {
-          Log.e(MODULE_NAME, "Pose landmarker failed", e);
-        }
+            Log.i(MODULE_NAME, "Pipeline 1 (Skin) took: " + (System.currentTimeMillis() - startTime) + "ms");
 
-        // Face Landmarker
-        try {
-          if (faceLandmarker == null) {
-              BaseOptions faceOptions = BaseOptions.builder()
-                  .setModelAssetPath("models/face_landmarker.task")
-                  .setDelegate(Delegate.GPU)
-                  .build();
-              FaceLandmarker.FaceLandmarkerOptions fOptions = FaceLandmarker.FaceLandmarkerOptions.builder()
-                  .setBaseOptions(faceOptions)
-                  .setRunningMode(RunningMode.IMAGE)
-                  .build();
-              faceLandmarker = FaceLandmarker.createFromOptions(ctx, fOptions);
-          }
-          
-          FaceLandmarkerResult faceResult = faceLandmarker.detect(mpImage);
-          if (faceResult.faceLandmarks().size() > 0) {
-            List<NormalizedLandmark> lm = faceResult.faceLandmarks().get(0);
+            String[] classNames = {
+                "Actinic Keratosis", "Basal Cell Carcinoma", "Benign Keratosis", 
+                "Dermatofibroma", "Melanoma", "Melanocytic Nevi", "Vascular Lesion"
+            };
             
-            double minX = 1.0, maxX = 0.0;
-            for (NormalizedLandmark n : lm) {
-                if (n.x() < minX) minX = n.x();
-                if (n.x() > maxX) maxX = n.x();
+            synchronized(skinFindingsList) {
+                for (int i = 0; i < Integer.min(7, skinOutFloat.length); i++) {
+                    if (skinOutFloat[i] > 0.05f) {
+                        skinFindingsList.add(new SkinFinding(classNames[i], skinOutFloat[i]));
+                    }
+                }
             }
-            double boxWidth = maxX - minX;
+          } catch (Exception e) { Log.e(MODULE_NAME, "Pipeline 1 failed", e); }
+          return null;
+      }));
 
-            double d234_454 = getDistance(lm.get(234), lm.get(454));
-            if (boxWidth > 0) {
-                double ratio = d234_454 / boxWidth;
-                if (ratio < 0.6) facial_wasting_score = 0.7;
-                else if (ratio < 0.75) facial_wasting_score = 0.4;
-                else facial_wasting_score = 0.1;
+      // Pipeline 2: EfficientNet-Lite4
+      futures.add(executor.submit(() -> {
+          try {
+            long effStartTime = System.currentTimeMillis();
+            if (efficientNetInterpreter == null) {
+                synchronized(ImageAnalysisModule.class) {
+                    if (efficientNetInterpreter == null) {
+                        MappedByteBuffer effModelBuffer = loadModelFile(ctx, "models/efficientnet_lite4.tflite");
+                        Interpreter.Options options = new Interpreter.Options();
+                        options.setNumThreads(2);
+                        options.setUseNNAPI(true);
+                        efficientNetInterpreter = new Interpreter(effModelBuffer, options);
+                    }
+                }
             }
 
-            sunken_eyes_score = (getVal(lm.get(33).visibility()) + getVal(lm.get(133).visibility()) + 
-                                 getVal(lm.get(362).visibility()) + getVal(lm.get(263).visibility())) / 4.0;
-          }
-        } catch (Exception e) {
-          Log.e(MODULE_NAME, "Face landmarker failed", e);
-        }
+            Bitmap resizedEff = Bitmap.createScaledBitmap(finalBitmap, 320, 320, true);
+            org.tensorflow.lite.Tensor effInTensor = efficientNetInterpreter.getInputTensor(0);
+            boolean isEffQuant = (effInTensor.dataType() == org.tensorflow.lite.DataType.UINT8 || effInTensor.dataType() == org.tensorflow.lite.DataType.INT8);
 
-        anyPipelineSuccessful = true;
-      } catch (Exception e) {
-        Log.e(MODULE_NAME, "Pipeline 3 failed", e);
+            ByteBuffer effInput;
+            if (isEffQuant) effInput = ByteBuffer.allocateDirect(320 * 320 * 3);
+            else effInput = ByteBuffer.allocateDirect(320 * 320 * 3 * 4);
+            effInput.order(ByteOrder.nativeOrder());
+            
+            int[] pixelsEff = new int[320 * 320];
+            resizedEff.getPixels(pixelsEff, 0, 320, 0, 0, 320, 320);
+            for (int v : pixelsEff) {
+                if (isEffQuant) {
+                    effInput.put((byte) ((v >> 16) & 0xFF));
+                    effInput.put((byte) ((v >> 8) & 0xFF));
+                    effInput.put((byte) (v & 0xFF));
+                } else {
+                    effInput.putFloat((((v >> 16) & 0xFF) / 127.5f) - 1.0f);
+                    effInput.putFloat((((v >> 8) & 0xFF) / 127.5f) - 1.0f);
+                    effInput.putFloat(((v & 0xFF) / 127.5f) - 1.0f);
+                }
+            }
+            resizedEff.recycle();
+
+            float[] effOutFloat;
+            synchronized(efficientNetInterpreter) {
+               effOutFloat = runTensorFlowInference(efficientNetInterpreter, effInput);
+            }
+            Log.i(MODULE_NAME, "Pipeline 2 (EffNet) took: " + (System.currentTimeMillis() - effStartTime) + "ms");
+            
+            synchronized(efficientNetFlags) {
+                if (checkRange(effOutFloat, 951, 980, 0.02f)) efficientNetFlags.add("skin_texture_abnormality");
+                if (checkRange(effOutFloat, 281, 294, 0.02f)) efficientNetFlags.add("hair_abnormality_detected");
+                if (effOutFloat.length > 878 && effOutFloat[878] > 0.02f) efficientNetFlags.add("pallor_or_discoloration");
+                if (checkRange(effOutFloat, 367, 400, 0.02f)) efficientNetFlags.add("body_swelling_proxy");
+                if (checkRange(effOutFloat, 430, 450, 0.02f)) efficientNetFlags.add("visible_wasting_proxy");
+            }
+          } catch (Exception e) { Log.e(MODULE_NAME, "Pipeline 2 failed", e); }
+          return null;
+      }));
+
+      // Pipeline 3: MediaPipe Pose + Face
+      final double[] structuralScores = new double[5]; // 0:arm, 1:rib, 2:limb_sym, 3:face, 4:sunken
+      
+      futures.add(executor.submit(() -> {
+          try {
+            MPImage mpImage = new BitmapImageBuilder(finalBitmap).build();
+
+            try {
+              if (poseLandmarker == null) {
+                  synchronized(ImageAnalysisModule.class) {
+                      if (poseLandmarker == null) {
+                          BaseOptions poseOptions = BaseOptions.builder()
+                              .setModelAssetPath("models/pose_landmarker_lite.task")
+                              .setDelegate(Delegate.GPU)
+                              .build();
+                          PoseLandmarker.PoseLandmarkerOptions pOptions = PoseLandmarker.PoseLandmarkerOptions.builder()
+                              .setBaseOptions(poseOptions)
+                              .setRunningMode(RunningMode.IMAGE)
+                              .build();
+                          poseLandmarker = PoseLandmarker.createFromOptions(ctx, pOptions);
+                      }
+                  }
+              }
+              
+              PoseLandmarkerResult poseResult;
+              synchronized(poseLandmarker) { poseResult = poseLandmarker.detect(mpImage); }
+              
+              if (poseResult.landmarks().size() > 0) {
+                List<NormalizedLandmark> lm = poseResult.landmarks().get(0);
+                double d11_13 = getDistance(lm.get(11), lm.get(13));
+                double d11_23 = getDistance(lm.get(11), lm.get(23));
+                if (d11_23 > 0) {
+                  double ratio = d11_13 / d11_23;
+                  if (ratio < 0.35) structuralScores[0] = 0.8;
+                  else if (ratio < 0.45) structuralScores[0] = 0.5;
+                  else structuralScores[0] = 0.1;
+                }
+                structuralScores[1] = (getVal(lm.get(11).visibility()) + getVal(lm.get(12).visibility()) + 
+                                        getVal(lm.get(23).visibility()) + getVal(lm.get(24).visibility())) / 4.0;
+                double leftArm = d11_13;
+                double rightArm = getDistance(lm.get(12), lm.get(14));
+                double torso = d11_23;
+                if (torso > 0) {
+                    double sym = 1.0 - (Math.abs(leftArm - rightArm) / torso);
+                    structuralScores[2] = Math.max(0.0, Math.min(1.0, sym));
+                }
+              }
+            } catch (Exception e) { Log.e(MODULE_NAME, "Pose landmarker failed", e); }
+
+            try {
+              if (faceLandmarker == null) {
+                  synchronized(ImageAnalysisModule.class) {
+                      if (faceLandmarker == null) {
+                          BaseOptions faceOptions = BaseOptions.builder()
+                              .setModelAssetPath("models/face_landmarker.task")
+                              .setDelegate(Delegate.GPU)
+                              .build();
+                          FaceLandmarker.FaceLandmarkerOptions fOptions = FaceLandmarker.FaceLandmarkerOptions.builder()
+                              .setBaseOptions(faceOptions)
+                              .setRunningMode(RunningMode.IMAGE)
+                              .build();
+                          faceLandmarker = FaceLandmarker.createFromOptions(ctx, fOptions);
+                      }
+                  }
+              }
+              
+              FaceLandmarkerResult faceResult;
+              synchronized(faceLandmarker) { faceResult = faceLandmarker.detect(mpImage); }
+              
+              if (faceResult.faceLandmarks().size() > 0) {
+                List<NormalizedLandmark> lm = faceResult.faceLandmarks().get(0);
+                double minX = 1.0, maxX = 0.0;
+                for (NormalizedLandmark n : lm) {
+                    if (n.x() < minX) minX = n.x();
+                    if (n.x() > maxX) maxX = n.x();
+                }
+                double boxWidth = maxX - minX;
+                double d234_454 = getDistance(lm.get(234), lm.get(454));
+                if (boxWidth > 0) {
+                    double ratio = d234_454 / boxWidth;
+                    if (ratio < 0.6) structuralScores[3] = 0.7;
+                    else if (ratio < 0.75) structuralScores[3] = 0.4;
+                    else structuralScores[3] = 0.1;
+                }
+                structuralScores[4] = (getVal(lm.get(33).visibility()) + getVal(lm.get(133).visibility()) + 
+                                     getVal(lm.get(362).visibility()) + getVal(lm.get(263).visibility())) / 4.0;
+              }
+            } catch (Exception e) { Log.e(MODULE_NAME, "Face landmarker failed", e); }
+
+          } catch (Exception e) { Log.e(MODULE_NAME, "Pipeline 3 failed", e); }
+          return null;
+      }));
+
+      // Await all parallel execution
+      for (Future<Void> f : futures) {
+          try { f.get(); anyPipelineSuccessful = true; } catch (Exception e) {}
       }
 
-      // Recycle bitmap when finished analyzing
+      arm_wasting_score = structuralScores[0];
+      rib_visibility_score = structuralScores[1];
+      limb_symmetry_score = structuralScores[2];
+      facial_wasting_score = structuralScores[3];
+      sunken_eyes_score = structuralScores[4];
+
       bitmap.recycle();
 
       if (!anyPipelineSuccessful) {
@@ -378,6 +391,7 @@ public class ImageAnalysisModule extends ReactContextBaseJavaModule {
       if (bitmap != null && !bitmap.isRecycled()) bitmap.recycle();
       resolveSafeDefault(promise);
     }
+    }); // End of executor.submit
   }
 
   private void resolveSafeDefault(Promise promise) {

@@ -126,6 +126,9 @@ dependencies {
     // TensorFlow Lite for on-device visual classification
     implementation 'org.tensorflow:tensorflow-lite:2.14.0'
     implementation 'org.tensorflow:tensorflow-lite-support:0.4.4'
+
+    // LiteRT / MediaPipe Tasks GenAI for on-device LLM inference
+    implementation 'com.google.mediapipe:tasks-genai:0.10.14'
 }
 
 apply from: "../../node_modules/react-native-vector-icons/fonts.gradle"
