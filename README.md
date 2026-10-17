@@ -14,6 +14,10 @@
 
 </div>
 
+## Application Demo
+
+<video src="https://github.com/user-attachments/assets/642dc203-d762-4e15-bf9a-a5e2eef121c0" controls="controls" muted="muted" style="max-height:640px; min-height: 200px">
+</video>
 ---
 
 ## Problem & Motivation
