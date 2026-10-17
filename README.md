@@ -6,7 +6,6 @@
 [![React Native](https://img.shields.io/badge/React_Native-0.85-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://reactnative.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Edge AI](https://img.shields.io/badge/Edge_AI-100%25_Offline-FF6F00?style=for-the-badge&logo=tensorflow&logoColor=white)](https://www.tensorflow.org/lite)
-[![Languages](https://img.shields.io/badge/Languages-10_Supported-4CAF50?style=for-the-badge)](#multilingual-support)
 [![Privacy](https://img.shields.io/badge/Privacy-Zero_Cloud_Data-8E44AD?style=for-the-badge)](#data-privacy--sovereignty)
 
 **An intelligent, fully offline edge-AI early warning system for pediatric malnutrition, ocular indicators, and developmental conditions in low-resource environments.**
@@ -38,7 +37,6 @@ While cloud-based AI diagnostic tools exist, they fundamentally fail where the m
 - **Deterministic Clinical RAG (52 Conditions):** Knowledge retrieval engine grounded in 52 WHO-curated pediatric conditions (ICD-11 codes) across 8 clinical categories with sub-50ms deterministic scoring.
 - **Offline GPS Specialist Handoff:** Uses raw device satellite GPS coordinates and mathematical Haversine formulas against a pre-bundled database of regional hospitals (`facilities_tn.json`) to find the nearest specialized healthcare facility.
 - **"Tell the Doctor" Brief:** Synthesizes caregiver-reported symptoms, detected visual flags, and WHO clinical guidelines into an actionable, copyable briefing note for medical practitioners.
-- **10 Regional Languages:** Fully localized interface supporting **Tamil (`ta`), Hindi (`hi`), Bengali (`bn`), Swahili (`sw`), Hausa (`ha`), Amharic (`am`), Urdu (`ur`), Spanish (`es`), French (`fr`), and English (`en`)**.
 - **Clinician & Developer Audit Panel:** Built-in transparency dashboard displaying intermediate inference tokens, confidence percentiles, and raw sensor outputs.
 
 ---
@@ -114,7 +112,7 @@ Rather than executing a single large multimodal vision-language model (which cau
 ### 2. Edge Speech Recognition
 - **Engine:** `whisper.rn` wrapping `whisper.cpp` in optimized C++ via JNI.
 - **Model:** Quantized Whisper-Base (`142 MB`).
-- **Rationale:** Base model provides significantly higher accuracy for non-native accented speech (Tamil, Amharic, Bengali, Swahili) compared to Tiny, running completely on CPU without GPU overhead.
+- **Rationale:** Base model provides significantly higher transcription accuracy and robustness on varied accents compared to Tiny, running completely on CPU without GPU overhead.
 
 ### 3. Pure TypeScript Clinical RAG Engine
 - **Memory Footprint:** ~200 KB (`chunk_map.json`).
@@ -169,7 +167,7 @@ earlyeyes/
 │   │   ├── constants/            # Themes, design tokens, color palette
 │   │   ├── data/                 # Bundled hospitals (facilities_tn.json)
 │   │   ├── db/                   # Local SQLite storage & migrations
-│   │   ├── i18n/                 # Localization dictionaries (10 languages)
+│   │   ├── i18n/                 # UI text strings & configurations
 │   │   ├── llm/                  # Llama 3.2 1B runtime bindings & Prompts
 │   │   ├── navigation/           # React Navigation stack & tabs
 │   │   ├── screens/              # Core screens (Camera, Voice, Processing, Result)
