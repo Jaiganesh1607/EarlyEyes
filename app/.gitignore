@@ -34,6 +34,15 @@ local.properties
 *.keystore
 !debug.keystore
 .kotlin/
+*.apk
+*.aab
+releases/
+release/
+*.gguf
+*.bin
+*.so
+android/app/src/main/assets/models/
+android/app/src/main/assets/ggml-hexagon/
 
 # node.js
 #

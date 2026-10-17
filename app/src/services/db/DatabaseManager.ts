@@ -27,6 +27,12 @@ export function getDB() {
         );`,
       );
 
+      try {
+        await db.executeSql('ALTER TABLE assessments ADD COLUMN chat_history_json TEXT;');
+      } catch (e) {
+        // column exists
+      }
+
       return db;
     });
   }

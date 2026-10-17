@@ -2,12 +2,12 @@
 // LLMService.ts
 // Singleton service that orchestrates:
 //   1. Model download (via ModelDownloader)
-//   2. Model load into the native runtime (via LiteRTNative)
+//   2. Model load into llama.rn
 //   3. Prompt construction (via PromptBuilder)
-//   4. Inference and JSON parsing
+//   4. Inference (with streaming) and JSON parsing
 // ============================================================
 
-import { LiteRTNative } from './LLMNativeModule';
+import { initLlama, LlamaContext } from 'llama.rn';
 import {
   ModelDownloader,
   isModelDownloaded,
@@ -28,6 +28,7 @@ type StatusListener = (status: ModelStatus) => void;
 class LLMService {
   private _status: ModelStatus = 'not_downloaded';
   private _listeners: StatusListener[] = [];
+  private _llamaContext: LlamaContext | null = null;
 
   // ----------------------------------------------------------
   // Status management
@@ -54,21 +55,12 @@ class LLMService {
   // Initialisation (download + load)
   // ----------------------------------------------------------
 
-  /**
-   * Downloads the model (if needed) and loads it into the native runtime.
-   * Safe to call multiple times — skips download/load if already done.
-   *
-   * @param onProgress  Progress callback during download
-   * @param modelUrl    Optional override for the download URL
-   */
   async initialize(
     onProgress?: (progress: DownloadProgress) => void,
     modelUrl?: string,
   ): Promise<void> {
-    // If already ready, no-op
     if (this._status === 'ready') return;
 
-    // If already loading, wait; don't double-init
     if (
       this._status === 'loading' ||
       this._status === 'downloading'
@@ -85,17 +77,18 @@ class LLMService {
           modelUrl ?? MODEL_CONFIG.defaultModelUrl,
           MODEL_CONFIG.modelFileName,
         );
-        // Fire progress at 100% since the class method doesn't support progress callback
         onProgress?.({ bytesDownloaded: MODEL_CONFIG.estimatedSizeBytes, totalBytes: MODEL_CONFIG.estimatedSizeBytes, percentage: 100 });
       }
 
       this.setStatus('loading');
       const modelPath = getModelPath();
-      const loaded = await LiteRTNative.loadModel(modelPath);
-
-      if (!loaded) {
-        throw new Error('Native loadModel() returned false.');
-      }
+      
+      this._llamaContext = await initLlama({
+        model: modelPath,
+        use_mlock: false, // CRITICAL: True causes severe memory thrashing on Android
+        n_ctx: 1024,      // Reduced to 1024 for speed
+        n_threads: 4,     // Limit threads so OS doesn't choke
+      });
 
       this.setStatus('ready');
     } catch (err) {
@@ -108,26 +101,82 @@ class LLMService {
   // Inference
   // ----------------------------------------------------------
 
-  /**
-   * Run a diagnosis inference.
-   * @throws if the model is not ready.
-   */
-  async runDiagnosis(input: LLMInput): Promise<LLMOutput> {
-    if (this._status !== 'ready') {
+  async runDiagnosis(input: LLMInput, onToken?: (token: string) => void): Promise<LLMOutput> {
+    if (this._status !== 'ready' || !this._llamaContext) {
       throw new Error(
         `Model is not ready (status: "${this._status}"). Call initialize() first.`,
       );
     }
 
     const prompt = buildPrompt(input);
+    let fullResponse = '';
 
-    const rawResponse = await LiteRTNative.runInference(
-      prompt,
-      MODEL_CONFIG.maxTokens,
-      MODEL_CONFIG.temperature,
-    );
+    try {
+      const result = await this._llamaContext.completion(
+        {
+          prompt,
+          n_predict: MODEL_CONFIG.maxTokens,
+          temperature: MODEL_CONFIG.temperature,
+          stop: ['<|eot_id|>', '<|end_of_text|>', '```', '<|im_end|>'],
+        },
+        (progress) => {
+          if (progress && progress.token) {
+            fullResponse += progress.token;
+            if (onToken) {
+              onToken(progress.token);
+            }
+          }
+        }
+      );
+      
+      // If the completion promise returns the full text (which it usually does)
+      if (result && result.text) {
+          fullResponse = result.text;
+      }
+    } catch (err: any) {
+      console.error('[LLMService] Inference failed:', err);
+      return { results: [], rawResponse: fullResponse, parseError: err.message };
+    }
 
-    return this._parseResponse(rawResponse);
+    return this._parseResponse(fullResponse);
+  }
+
+  async runChat(contextText: string, history: import('./types').ChatMessage[], newQuestion: string, onToken?: (token: string) => void): Promise<string> {
+    if (this._status !== 'ready' || !this._llamaContext) {
+      throw new Error(`Model is not ready (status: "${this._status}"). Call initialize() first.`);
+    }
+
+    const { buildChatPrompt } = require('./PromptBuilder');
+    const prompt = buildChatPrompt(contextText, history, newQuestion);
+    let fullResponse = '';
+
+    try {
+      const result = await this._llamaContext.completion(
+        {
+          prompt,
+          n_predict: MODEL_CONFIG.maxTokens,
+          temperature: MODEL_CONFIG.temperature,
+          stop: ['<|eot_id|>', '<|end_of_text|>', '```', '<|im_end|>'],
+        },
+        (progress) => {
+          if (progress && progress.token) {
+            fullResponse += progress.token;
+            if (onToken) {
+              onToken(progress.token);
+            }
+          }
+        }
+      );
+      
+      if (result && result.text) {
+          fullResponse = result.text;
+      }
+    } catch (err: any) {
+      console.error('[LLMService] Chat Inference failed:', err);
+      throw err;
+    }
+
+    return fullResponse.trim();
   }
 
   // ----------------------------------------------------------
@@ -139,28 +188,35 @@ class LLMService {
     let results: DiseaseResult[] = [];
 
     try {
-      // Strip any leading/trailing markdown fences the model might emit
       let cleaned = rawResponse
         .replace(/```json/gi, '')
         .replace(/```/g, '')
         .trim();
 
-      // Find the JSON array boundaries
-      const start = cleaned.indexOf('[');
-      const end = cleaned.lastIndexOf(']');
-
-      if (start === -1 || end === -1 || end <= start) {
-        throw new Error('No JSON array found in model output.');
+      // If the model got cut off, attempt to fix the trailing array bracket
+      if (cleaned.lastIndexOf(']') < cleaned.lastIndexOf('}')) {
+          cleaned = cleaned + ']';
       }
 
-      const jsonStr = cleaned.slice(start, end + 1);
-      const parsed = JSON.parse(jsonStr);
+      const startArray = cleaned.indexOf('[');
+      const endArray = cleaned.lastIndexOf(']');
 
-      if (!Array.isArray(parsed)) {
-        throw new Error('Parsed value is not an array.');
+      if (startArray !== -1 && endArray !== -1 && endArray > startArray) {
+        const jsonStr = cleaned.slice(startArray, endArray + 1);
+        const parsed = JSON.parse(jsonStr);
+        results = Array.isArray(parsed) ? parsed : [parsed];
+      } else {
+        // Try parsing a single object if the model forgot the array brackets
+        const startObj = cleaned.indexOf('{');
+        const endObj = cleaned.lastIndexOf('}');
+        if (startObj !== -1 && endObj !== -1 && endObj > startObj) {
+          const jsonStr = cleaned.slice(startObj, endObj + 1);
+          const parsed = JSON.parse(jsonStr);
+          results = [parsed];
+        } else {
+          throw new Error('No JSON object or array found in model output.');
+        }
       }
-
-      results = parsed as DiseaseResult[];
     } catch (err: any) {
       parseError = err?.message ?? 'Unknown parse error';
       console.error('[LLMService] Failed to parse model output:', parseError);
@@ -176,7 +232,10 @@ class LLMService {
 
   async unload(): Promise<void> {
     try {
-      await LiteRTNative.unloadModel();
+      if (this._llamaContext) {
+        await this._llamaContext.release();
+        this._llamaContext = null;
+      }
     } catch {
       // Ignore unload errors
     }
@@ -184,10 +243,9 @@ class LLMService {
   }
 
   // ----------------------------------------------------------
-  // Static convenience method (interface contract)
+  // Static convenience method
   // ----------------------------------------------------------
 
-  /** Simple generate(prompt) → Promise<string> for direct use. */
   static async generate(prompt: string): Promise<string> {
     const output = await llmService.runDiagnosis({
       symptoms: prompt,

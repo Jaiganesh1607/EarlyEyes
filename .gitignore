@@ -1,3 +1,30 @@
-env
-node_modules
+# Dependencies
+node_modules/
+env/
+
+# IDE & Editor artifacts
+.oxcode/
 .oxcode-memory/
+.idea/
+.vscode/
+
+# Android Build & Release Outputs
+build/
+**/build/
+*.apk
+*.aab
+releases/
+release/
+*.dm
+native-debug-symbols.zip
+output-metadata.json
+
+# Large AI Model Weights & Native Binaries (>50MB / GitHub limits)
+*.gguf
+*.bin
+*.task
+*.tflite
+*.onnx
+*.so
+app/android/app/src/main/assets/models/
+app/android/app/src/main/assets/ggml-hexagon/

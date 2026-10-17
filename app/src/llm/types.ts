@@ -57,6 +57,11 @@ export interface DownloadProgress {
   percentage: number;
 }
 
+export interface ChatMessage {
+  role: 'user' | 'assistant';
+  text: string;
+}
+
 export type ModelStatus =
   | 'not_downloaded'
   | 'downloading'

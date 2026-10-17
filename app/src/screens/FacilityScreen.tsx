@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Pressable,
   SafeAreaView,
@@ -6,28 +6,43 @@ import {
   StyleSheet,
   Text,
   View,
+  ActivityIndicator,
+  Linking,
+  Platform,
+  PermissionsAndroid
 } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import BrandHeader from '../components/BrandHeader';
+import { FacilityService, Facility } from '../services/location/FacilityService';
 
 export default function FacilityScreen() {
-  const facilities = [
-    {
-      name: 'Mercy General Hospital',
-      distance: '1.2 km',
-      type: 'Hospital',
-    },
-    {
-      name: 'Westside Community Clinic',
-      distance: '3.5 km',
-      type: 'Clinic',
-    },
-    {
-      name: 'Pediatric Urgent Care',
-      distance: '5.0 km',
-      type: 'Urgent Care',
-    },
-  ];
+  const [facilities, setFacilities] = useState<Facility[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function load() {
+      try {
+        if (Platform.OS === 'android') {
+          await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION);
+        }
+        const list = await FacilityService.getRecommendedFacilities();
+        setFacilities(list);
+      } catch (e) {
+        console.warn(e);
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, []);
+
+  const handleNavigate = (facility: Facility) => {
+    const url = Platform.select({
+      ios: `maps:0,0?q=${facility.name}@${facility.latitude},${facility.longitude}`,
+      android: `geo:0,0?q=${facility.latitude},${facility.longitude}(${facility.name})`
+    });
+    if (url) Linking.openURL(url);
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -41,31 +56,45 @@ export default function FacilityScreen() {
           Nearest health facilities available offline.
         </Text>
 
-        <View style={styles.list}>
-          {facilities.map((facility) => (
-            <View key={facility.name} style={styles.card}>
-              <View style={styles.cardHeader}>
-                <Text style={styles.cardTitle}>{facility.name}</Text>
-                <View style={styles.distancePill}>
-                  <Text style={styles.distanceText}>{facility.distance}</Text>
+        {loading ? (
+          <ActivityIndicator size="large" color="#1D4ED8" style={{ marginTop: 40 }} />
+        ) : (
+          <View style={styles.list}>
+            {facilities.map((facility) => (
+              <View key={facility.id} style={styles.card}>
+                <View style={styles.cardHeader}>
+                  <Text style={styles.cardTitle}>{facility.name}</Text>
+                  {facility.distanceKm !== undefined && (
+                    <View style={styles.distancePill}>
+                      <Text style={styles.distanceText}>{facility.distanceKm.toFixed(1)} km</Text>
+                    </View>
+                  )}
+                </View>
+                <View style={styles.cardMeta}>
+                  <Icon 
+                    name={facility.type === 'who' ? 'earth' : facility.type === 'gov' ? 'hospital-building' : 'eye-circle'} 
+                    size={16} 
+                    color="#1F2937" 
+                  />
+                  <Text style={styles.cardMetaText}>
+                    {facility.type === 'who' ? 'WHO Centre' : facility.type === 'gov' ? 'Gov Hospital' : 'Private'} 
+                    {' • '}
+                    {facility.level === 'tertiary' ? 'Specialist Care' : 'Primary Care'}
+                  </Text>
+                </View>
+                <View style={styles.cardActions}>
+                  <Pressable style={styles.callButton} onPress={() => handleNavigate(facility)}>
+                    <Icon name="navigation" size={18} color="#FFFFFF" />
+                    <Text style={styles.callText}>Navigate</Text>
+                  </Pressable>
+                  <Pressable style={styles.infoButton}>
+                    <Icon name="information" size={18} color="#1F2937" />
+                  </Pressable>
                 </View>
               </View>
-              <View style={styles.cardMeta}>
-                <Icon name="hospital-box-outline" size={16} color="#1F2937" />
-                <Text style={styles.cardMetaText}>{facility.type}</Text>
-              </View>
-              <View style={styles.cardActions}>
-                <Pressable style={styles.callButton}>
-                  <Icon name="phone" size={18} color="#FFFFFF" />
-                  <Text style={styles.callText}>Call</Text>
-                </Pressable>
-                <Pressable style={styles.infoButton}>
-                  <Icon name="information" size={18} color="#1F2937" />
-                </Pressable>
-              </View>
-            </View>
-          ))}
-        </View>
+            ))}
+          </View>
+        )}
       </ScrollView>
     </SafeAreaView>
   );

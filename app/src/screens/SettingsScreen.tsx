@@ -43,19 +43,7 @@ export default function SettingsScreen() {
           Manage your app preferences and review important information.
         </Text>
 
-        <Pressable
-          style={styles.card}
-          onPress={() => navigation.navigate('LanguageSelect', { fromSettings: true })}
-        >
-          <View style={[styles.cardIcon, styles.cardIconBlue]}>
-            <Icon name="earth" size={18} color="#FFFFFF" />
-          </View>
-          <View style={styles.cardBody}>
-            <Text style={styles.cardTitle}>Change Language</Text>
-            <Text style={styles.cardSubtitle}>{currentLanguage}</Text>
-          </View>
-          <Icon name="chevron-right" size={22} color="#9CA3AF" />
-        </Pressable>
+
 
         <Pressable style={styles.card}>
           <View style={[styles.cardIcon, styles.cardIconGreen]}>

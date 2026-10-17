@@ -11,4 +11,5 @@ export type Assessment = {
   language?: string;
   input_type?: string;
   confidence?: number;
+  chat_history?: { role: 'user' | 'assistant', text: string }[];
 };

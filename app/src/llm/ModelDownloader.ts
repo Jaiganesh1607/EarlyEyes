@@ -32,63 +32,45 @@ export const isModelDownloaded = async (): Promise<boolean> => {
  */
 export const downloadModel = (
   onProgress?: (progress: DownloadProgress) => void,
-  modelUrl: string = MODEL_CONFIG.defaultModelUrl,
+  modelUrl: string = MODEL_CONFIG.defaultModelUrl, // Kept for interface compatibility
 ): Promise<string> =>
   new Promise(async (resolve, reject) => {
     const destPath = getModelPath();
 
-    // Already downloaded — skip
+    // Already present on device
     if (await RNFS.exists(destPath)) {
       resolve(destPath);
       return;
     }
 
-    const task = RNFS.downloadFile({
-      fromUrl: modelUrl,
-      toFile: destPath,
-      headers: {
-        // HuggingFace sometimes needs this for large file downloads
-        Accept: 'application/octet-stream',
-      },
-      background: true,          // keep downloading when app backgrounds (iOS)
-      discretionary: false,      // prioritise immediately (iOS)
-      progressInterval: 500,     // call onProgress every 500 ms
-      progress: (res) => {
-        const total =
-          res.contentLength > 0
-            ? res.contentLength
-            : MODEL_CONFIG.estimatedSizeBytes;
-
-        onProgress?.({
-          bytesDownloaded: res.bytesWritten,
-          totalBytes: total,
-          percentage: Math.min(
-            100,
-            Math.floor((res.bytesWritten / total) * 100),
-          ),
-        });
-      },
-    });
-
-    task.promise
-      .then((result) => {
-        if (result.statusCode === 200) {
-          resolve(destPath);
-        } else {
-          // Clean up partial file
-          RNFS.unlink(destPath).catch(() => {});
-          reject(
-            new Error(
-              `Download failed — HTTP ${result.statusCode}. Check the model URL in ModelConfig.ts`,
-            ),
-          );
-        }
-      })
-      .catch(async (err) => {
-        // Clean up partial file
-        await RNFS.unlink(destPath).catch(() => {});
-        reject(err);
+    try {
+      // Signal start
+      onProgress?.({
+        bytesDownloaded: 0,
+        totalBytes: MODEL_CONFIG.estimatedSizeBytes,
+        percentage: 0,
       });
+
+      // The path relative to android/app/src/main/assets/
+      const assetPath = `models/${MODEL_CONFIG.modelFileName}`;
+      
+      // This synchronously/asynchronously copies the 800MB file from the APK bundle
+      // into the readable DocumentDirectory.
+      await RNFS.copyFileAssets(assetPath, destPath);
+      
+      // Signal completion
+      onProgress?.({
+        bytesDownloaded: MODEL_CONFIG.estimatedSizeBytes,
+        totalBytes: MODEL_CONFIG.estimatedSizeBytes,
+        percentage: 100,
+      });
+
+      resolve(destPath);
+    } catch (err) {
+      // Clean up partial file
+      await RNFS.unlink(destPath).catch(() => {});
+      reject(new Error(`Failed to copy model from assets: ${err}`));
+    }
   });
 
 /** Remove the model file from device storage */
@@ -107,7 +89,6 @@ export class ModelDownloader {
    * Delegates to downloadModel() internally.
    */
   static async download(modelUrl: string, localName: string): Promise<string> {
-    // Override the model path to use the caller-supplied fileName
     const destPath = `${RNFS.DocumentDirectoryPath}/${localName}`;
 
     // If already present, return the path
@@ -115,29 +96,14 @@ export class ModelDownloader {
       return destPath;
     }
 
-    return new Promise<string>((resolve, reject) => {
-      const task = RNFS.downloadFile({
-        fromUrl: modelUrl,
-        toFile: destPath,
-        headers: { Accept: 'application/octet-stream' },
-        background: true,
-        discretionary: false,
-      });
-
-      task.promise
-        .then((result) => {
-          if (result.statusCode === 200) {
-            resolve(destPath);
-          } else {
-            RNFS.unlink(destPath).catch(() => {});
-            reject(new Error(`Download failed — HTTP ${result.statusCode}`));
-          }
-        })
-        .catch(async (err) => {
-          await RNFS.unlink(destPath).catch(() => {});
-          reject(err);
-        });
-    });
+    try {
+      const assetPath = `models/${localName}`;
+      await RNFS.copyFileAssets(assetPath, destPath);
+      return destPath;
+    } catch (err) {
+      await RNFS.unlink(destPath).catch(() => {});
+      throw new Error(`Failed to copy ${localName} from assets: ${err}`);
+    }
   }
 }
 

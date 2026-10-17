@@ -26,7 +26,7 @@ export type ScanStackParamList = {
   InputMethod: { photoUri?: string; audioUri?: string } | undefined;
   Camera: { photoUri?: string; audioUri?: string } | undefined;
   VoiceInput: { photoUri?: string; audioUri?: string } | undefined;
-  Processing: { photoUri?: string; audioUri?: string; text?: string } | undefined;
+  Processing: { photoUri?: string; audioUri?: string; text?: string; analysisMode?: 'fast' | 'deep' } | undefined;
   Result: {
     result?: FinalAssessmentResult;
     assessmentId?: string;

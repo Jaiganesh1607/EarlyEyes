@@ -25,6 +25,7 @@ function mapRow(row: any): Assessment {
     language: row.language ?? undefined,
     input_type: row.input_type ?? undefined,
     confidence: row.confidence ?? undefined,
+    chat_history: parseIndicators(row.chat_history_json) as any, // using parseIndicators since it just parses JSON array
   };
 }
 
@@ -71,8 +72,9 @@ export async function saveAssessment(assessment: Assessment): Promise<void> {
     risk: assessment.risk_level,
     timestamp: assessment.timestamp,
   });
+  const chatHistoryJson = JSON.stringify(assessment.chat_history ?? []);
   await executeSql(
-    'INSERT OR REPLACE INTO assessments (id, timestamp, risk_level, indicators_json, plain_language, tell_doctor, facility_id, language, input_type, confidence) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    'INSERT OR REPLACE INTO assessments (id, timestamp, risk_level, indicators_json, plain_language, tell_doctor, facility_id, language, input_type, confidence, chat_history_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     [
       assessment.id,
       assessment.timestamp,
@@ -84,6 +86,7 @@ export async function saveAssessment(assessment: Assessment): Promise<void> {
       assessment.language ?? 'en',
       assessment.input_type ?? 'text',
       assessment.confidence ?? null,
+      chatHistoryJson,
     ],
   );
   console.log('[DB] saveAssessment complete', assessment.id);
@@ -92,7 +95,7 @@ export async function saveAssessment(assessment: Assessment): Promise<void> {
 export async function getAssessments(): Promise<Assessment[]> {
   console.log('[DB] getAssessments');
   const result = await executeSql(
-    'SELECT id, timestamp, risk_level, indicators_json, plain_language, tell_doctor, facility_id, language, input_type, confidence FROM assessments ORDER BY timestamp DESC',
+    'SELECT id, timestamp, risk_level, indicators_json, plain_language, tell_doctor, facility_id, language, input_type, confidence, chat_history_json FROM assessments ORDER BY timestamp DESC',
   );
   if (!result?.rows) {
     console.log('[DB] getAssessments: no rows');
@@ -109,7 +112,7 @@ export async function getAssessments(): Promise<Assessment[]> {
 export async function getAssessmentById(id: string): Promise<Assessment | null> {
   console.log('[DB] getAssessmentById', id);
   const result = await executeSql(
-    'SELECT id, timestamp, risk_level, indicators_json, plain_language, tell_doctor, facility_id, language, input_type, confidence FROM assessments WHERE id = ? LIMIT 1',
+    'SELECT id, timestamp, risk_level, indicators_json, plain_language, tell_doctor, facility_id, language, input_type, confidence, chat_history_json FROM assessments WHERE id = ? LIMIT 1',
     [id],
   );
   if (!result?.rows || result.rows.length === 0) {

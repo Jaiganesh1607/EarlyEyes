@@ -5,7 +5,7 @@
 // so the instruction-tuned model follows the JSON-only directive.
 // ============================================================
 
-import { LLMInput } from './types';
+import { LLMInput, ChatMessage } from './types';
 
 // ── Types referenced by the interface contract ──────────────────────────
 
@@ -30,33 +30,20 @@ export interface RagChunk {
 }
 
 const SYSTEM_INSTRUCTION = `You are a specialist medical AI for pediatric malnutrition diagnosis.
-Your ONLY output must be a valid JSON array — no markdown, no preamble, no explanation.
-Output ONLY the raw JSON array. Do NOT wrap it in code blocks.
+Your ONLY output must be a single valid JSON array containing the matching conditions.
+Do NOT echo the reference text. Output ONLY the raw JSON array.
 
 Each element in the array must follow this exact structure:
 {
   "id": "unique_snake_case_id",
   "disease": "Full Disease Name",
-  "category": "category_slug",
-  "icd11_code": "ICD-11 code",
-  "description": "Clinical description",
-  "symptoms": ["symptom1", "symptom2"],
-  "visual_indicators": ["indicator1"],
-  "future_warnings": ["warning1"],
-  "immediate_actions": ["action1"],
-  "nutritional_recommendations": ["rec1"],
-  "age_group": "age range string",
-  "who_muac_threshold": "MUAC threshold e.g. <11.5 cm",
-  "content": "Plain text summary for display",
-  "metadata": {
-    "sources": [{ "label": "WHO", "url": "https://..." }],
-    "sourceLabel": "WHO, Wikipedia",
-    "sourceUrls": ["https://..."]
-  }
+  "risk_level": "urgent or monitor or ok",
+  "confidence_percent": 85,
+  "reasoning": "A concise 1-2 sentence explanation of why this matches the symptoms"
 }
 
 If multiple conditions match, include one object per condition.
-If nothing matches, return an empty array: []`;
+If nothing matches, or if the patient appears healthy/normal with no concerning indicators, return an empty array: []`;
 
 /**
  * Build the fully formatted prompt ready for Gemma inference.
@@ -87,16 +74,32 @@ export const buildPrompt = (input: LLMInput): string => {
 
   const userContent = lines.join('\n');
 
-  // Gemma instruction-tuned format
+  // Llama 3 format
   return (
-    `<start_of_turn>user\n` +
-    `${SYSTEM_INSTRUCTION}\n\n` +
-    `${userContent}<end_of_turn>\n` +
-    `<start_of_turn>model\n`
+    `<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n` +
+    `${SYSTEM_INSTRUCTION}<|eot_id|><|start_header_id|>user<|end_header_id|>\n\n` +
+    `${userContent}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n`
   );
 };
 
 // ── PromptBuilder class (interface contract) ────────────────────────────
+
+const CHAT_SYSTEM_INSTRUCTION = `You are a medical explainer AI.
+You are NOT diagnosing the patient. The diagnosis has ALREADY been made by the clinical app.
+Your only job is to politely answer the user's questions by explaining the provided screening results in simple terms.
+Do NOT refuse to answer by saying "I cannot provide a diagnosis" or "Consult a doctor" as your primary response. You MUST explain the condition based on the context provided.`;
+
+export const buildChatPrompt = (contextText: string, history: ChatMessage[], newQuestion: string): string => {
+  let prompt = `<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n${CHAT_SYSTEM_INSTRUCTION}\n\n=== PATIENT SCREENING CONTEXT ===\n${contextText}\n=================================<|eot_id|>`;
+  
+  for (const msg of history) {
+    prompt += `<|start_header_id|>${msg.role}<|end_header_id|>\n\n${msg.text}<|eot_id|>`;
+  }
+  
+  prompt += `<|start_header_id|>user<|end_header_id|>\n\n${newQuestion}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n`;
+  
+  return prompt;
+};
 
 export class PromptBuilder {
   /**

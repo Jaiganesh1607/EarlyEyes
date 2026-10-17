@@ -9,6 +9,7 @@ export interface RAGResult {
   confidence: number;
   matched_by: 'image' | 'voice' | 'text' | 'combined' | 'none';
   total_matched: number;
+  raw_chunks: string[];
 }
 
 const URGENT_KEYWORDS = [
@@ -50,12 +51,17 @@ export async function runRAG(
   const risk_level = isUrgent ? 'urgent' :
     top_diseases.length > 0 ? 'monitor' : 'ok';
 
+  const raw_chunks = chunks
+    .filter(c => top_diseases.some(d => d.id === c.id))
+    .map(c => c.content);
+
   return {
     top_diseases,
     primary_disease,
     risk_level,
     confidence: primary_disease?.confidence_percent ?? 0,
     matched_by,
-    total_matched: scored.length
+    total_matched: scored.length,
+    raw_chunks
   };
 }

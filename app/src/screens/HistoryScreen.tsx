@@ -55,7 +55,7 @@ export default function HistoryScreen() {
       if (assessment) {
         navigation.navigate('InputMethod', {
           screen: 'Result',
-          params: { assessment },
+          params: { assessmentId: assessment.id, result: assessment },
         });
       }
     },

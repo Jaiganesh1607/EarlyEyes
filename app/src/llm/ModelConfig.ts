@@ -13,18 +13,18 @@
  * You can also pass a custom URL at runtime via LLMService.initialize().
  */
 export const MODEL_CONFIG = {
-  modelFileName: 'gemma-4-E2B-it.litertlm',
+  modelFileName: 'Llama-3.2-1B-Instruct-Q4_K_M.gguf',
 
   // ⬇ Replace this URL with the actual download link
   defaultModelUrl:
-    'https://huggingface.co/google/gemma-3n-E2B-it-litert/resolve/main/gemma-3n-E2B-it.litertlm',
+    'https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf',
 
   /** Approximate model size in bytes (used for progress bar when server
    *  doesn't return Content-Length). 2 GB default. */
   estimatedSizeBytes: 2_000_000_000,
 
   /** Max new tokens the model may generate per call */
-  maxTokens: 2048,
+  maxTokens: 300,
 
   /** Sampling temperature — keep low for deterministic JSON output */
   temperature: 0.05,

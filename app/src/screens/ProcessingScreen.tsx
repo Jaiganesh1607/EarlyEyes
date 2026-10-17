@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, SafeAreaView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, SafeAreaView, StyleSheet, Text, View, ScrollView } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -9,6 +9,8 @@ import { ScanStackParamList } from '../navigation/AppNavigator';
 import { analyzeChildImage } from '../services/cv/ImageAnalysisService';
 import { useLanguage } from '../i18n';
 import { runRAG } from '../services/rag/RAGPipeline';
+import { llmService } from '../llm/LLMService';
+import RNFS from 'react-native-fs';
 
 let initWhisper: any;
 try {
@@ -29,10 +31,11 @@ export default function ProcessingScreen() {
   const [statusMessage, setStatusMessage] = useState('Initializing AI Pipeline...');
   const [metrics, setMetrics] = useState<string>('');
   const [elapsedTime, setElapsedTime] = useState(0);
+  const [llmText, setLlmText] = useState<string>('');
 
   useEffect(() => {
     let timer: ReturnType<typeof setInterval>;
-    if (stepIndex > 0 && stepIndex < 3) {
+    if (stepIndex > 0 && stepIndex < 4) {
       timer = setInterval(() => {
         setElapsedTime(prev => prev + 1);
       }, 1000);
@@ -72,23 +75,28 @@ export default function ProcessingScreen() {
       if (params?.audioUri && initWhisper) {
         console.log('[Pipeline] Phase 2: Whisper Started');
         try {
-          const whisperContext = await initWhisper({ filePath: require('../../assets/models/ggml-base-q5_1.bin') });
+          const whisperPath = `${RNFS.DocumentDirectoryPath}/ggml-base-q5_1.bin`;
+          const isWhisperDownloaded = await RNFS.exists(whisperPath);
           
+          if (!isWhisperDownloaded) {
+            setStatusMessage('Loading offline Whisper model...');
+            await RNFS.copyFileAssets('models/ggml-base-q5_1.bin', whisperPath);
+          }
+          
+          const whisperContext = await initWhisper({ filePath: whisperPath });
           const isEnglish = language === 'en';
           
           const transcribeResult = await whisperContext.transcribe(params.audioUri, {
-            // Use the app's selected UI language to skip the slow 30-second auto-detect phase
             language: language || 'en', 
-            // Only run the heavy translation pass if the language is NOT English
             translate: !isEnglish, 
-            beamSize: 1, // Beam size 1 is strictly greedy, which is the fastest setting
+            beamSize: 1,
             temperature: 0, 
             greedy: true, 
             suppressNonSpeechTokens: true,
             suppressBlank: true,
             prompt: "Clinical symptoms.",
             onProgress: (p: number) => {
-              setProgress(0.2 + (p / 100) * 0.5);
+              setProgress(0.2 + (p / 100) * 0.3); // max 0.5 for this step
               setStatusMessage(`Transcribing audio: ${p}%`);
             }
           }).promise;
@@ -96,7 +104,6 @@ export default function ProcessingScreen() {
           let text = transcribeResult.result;
           const lowerText = text.toLowerCase();
           
-          // Aggressively filter out known Whisper silence hallucinations
           const isHallucination = 
             lowerText.includes("going to the road") || 
             lowerText.includes("doing something wrong") || 
@@ -118,7 +125,7 @@ export default function ProcessingScreen() {
     const cvResult = cvData.res;
     const transcript = audioData.res;
     
-    setProgress(0.8);
+    setProgress(0.6);
     setStepIndex(2);
     setStatusMessage('Cross-referencing RAG Knowledge Base...');
 
@@ -130,15 +137,65 @@ export default function ProcessingScreen() {
       params?.text || ""
     );
     const ragTime = Date.now() - tRag;
+    
+    setProgress(0.7);
+    setStepIndex(3);
+    // 3. LLM GENERATION
+    const tLlm = Date.now();
+    let llmFinalResult = null;
+    let llmOutput: any = null;
+    let llmTime = 0;
+    
+    const hasSymptoms = (cvResult?.indicators && cvResult.indicators.length > 0) || (transcript && transcript.trim().length > 0) || (params?.text && params.text.trim().length > 0);
 
+    if (!hasSymptoms) {
+      setStatusMessage('Healthy patient: Skipping LLM...');
+      setLlmText('⚡ Healthy patient detected.\n\nBypassing the LLM reasoning engine because no symptoms were provided.');
+      await new Promise(r => setTimeout(r, 800)); // Brief UX pause
+    } else if (params?.analysisMode === 'fast') {
+      setStatusMessage('Fast Mode: Skipping LLM...');
+      setLlmText('⚡ Fast Mode selected.\n\nBypassing the LLM reasoning engine to provide instant offline results using the RAG medical database.');
+      await new Promise(r => setTimeout(r, 800)); // Brief UX pause
+    } else {
+      setStatusMessage('LLM Generating Final Diagnosis...');
+      try {
+        if (llmService.status !== 'ready') {
+          setStatusMessage('Loading LLM Model...');
+          await llmService.initialize((p) => {
+             setStatusMessage(`Downloading LLM: ${Math.round(p.percentage)}%`);
+          });
+        }
+        
+        const ragContent = ragResult.raw_chunks?.join('\n\n') || "";
+        const symptoms = `Visual indicators: ${(cvResult?.indicators || []).join(', ')}. Transcript: ${transcript} ${params?.text || ''}`;
+        
+        setStatusMessage('Analyzing with Llama 3.2...');
+        
+        let dots = "";
+        llmOutput = await llmService.runDiagnosis(
+          { symptoms, ragContent },
+          (token) => {
+            dots = dots.length > 5 ? "" : dots + ".";
+            setLlmText('Llama 3.2 is analyzing clinical data' + dots + '\n\nPlease wait, this may take a moment.');
+          }
+        );
+        
+        llmFinalResult = llmOutput.results[0]; // Take top result if valid JSON array
+        llmTime = Date.now() - tLlm;
+      } catch (e) {
+        console.error("LLM Error:", e);
+        // Fallback to rule-based is implicit because we still have ragResult
+      }
+    }
+    
     const totalTime = Date.now() - t0;
-    const timingStr = `CV: ${(cvData.time/1000).toFixed(1)}s | Audio: ${(audioData.time/1000).toFixed(1)}s | RAG: ${(ragTime/1000).toFixed(1)}s | Total: ${(totalTime/1000).toFixed(1)}s`;
+    const timingStr = `CV: ${(cvData.time/1000).toFixed(1)}s | Audio: ${(audioData.time/1000).toFixed(1)}s | RAG: ${(ragTime/1000).toFixed(1)}s | LLM: ${(llmTime/1000).toFixed(1)}s`;
     console.log(`[Pipeline Performance] ${timingStr}`);
     setMetrics(timingStr);
 
     setStatusMessage('Finalizing Assessment...');
     setProgress(1.0);
-    setStepIndex(3);
+    setStepIndex(4);
 
     const id = `ee-${t0}-${Math.random().toString(36).slice(2, 8)}`;
     const input_type = params?.photoUri ? 'photo' : params?.audioUri ? 'audio' : 'text';
@@ -148,28 +205,39 @@ export default function ProcessingScreen() {
     if (transcript) input_types_used.push('voice');
     if (params?.text) input_types_used.push('text');
 
+    // Use LLM result if available, otherwise fallback to RAG rule-based result
+    const final_risk_level = llmFinalResult?.risk_level || ragResult.risk_level;
+    const cappedCvConf = Math.min(cvResult?.confidence || 0, 100);
+    const calculated_confidence = Math.round((cappedCvConf + ragResult.confidence) / 2);
+    const final_confidence = llmFinalResult?.confidence_percent || calculated_confidence;
+
     const mergedAssessment: any = {
       // Required by DB Assessment Type
       id,
       timestamp: t0,
-      risk_level: ragResult.risk_level,
+      risk_level: final_risk_level,
       indicators: cvResult?.indicators || [],
-      confidence: Math.round(((cvResult?.confidence ?? 0) + ragResult.confidence) / 2),
+      confidence: final_confidence,
       tell_doctor: JSON.stringify({
-        final_risk_level: ragResult.risk_level,
+        final_risk_level: final_risk_level,
         rag_result: ragResult,
+        llm_result: llmFinalResult,
+        raw_llm_response: llmOutput?.rawResponse,
         image_analysis: cvResult,
         raw_voice: transcript,
-        raw_text: params?.text
+        raw_text: params?.text,
+        diagnosis: llmFinalResult?.reasoning || llmFinalResult?.disease || ragResult?.primary_disease?.disease || ""
       }),
       facility_id: 'Pediatric specialist',
       input_type,
       language: 'en',
+      diagnosis: llmFinalResult?.reasoning || llmFinalResult?.disease || ragResult?.primary_disease?.disease || "",
       
       // Required by ResultScreen FinalAssessmentResult Type
-      final_risk_level: ragResult.risk_level,
-      final_confidence: Math.round(((cvResult?.confidence ?? 0) + ragResult.confidence) / 2),
+      final_risk_level: final_risk_level,
+      final_confidence: final_confidence,
       rag_result: ragResult,
+      llm_result: llmFinalResult,
       image_analysis: cvResult ? {
         risk_level: cvResult.risk_level,
         indicators: cvResult.indicators || [],
@@ -192,8 +260,8 @@ export default function ProcessingScreen() {
     
     setTimeout(() => { 
       navigation.navigate('Result', { assessmentId: id, result: mergedAssessment }); 
-    }, 1000); // Small delay to let user see "100%"
-  }, [params, navigation]);
+    }, 1500); // Give user time to see final streamed output before navigating
+  }, [params, navigation, language]);
 
   useEffect(() => {
     void handleComplete();
@@ -235,16 +303,24 @@ export default function ProcessingScreen() {
             </Text>
           </View>
 
-          {/* Step 3: Complete */}
+          {/* Step 3: LLM Phase */}
           <View style={[styles.stepRow, stepIndex >= 3 && styles.stepRowActive]}>
-            <View style={[styles.stepIcon, stepIndex >= 3 ? styles.stepIconComplete : styles.stepIconIdle]}>
-              <Icon name={stepIndex >= 3 ? "check" : "checkbox-blank-circle-outline"} size={16} color={stepIndex >= 3 ? "#0F5132" : "#9CA3AF"} />
+            <View style={[styles.stepIcon, stepIndex > 3 ? styles.stepIconComplete : stepIndex === 3 ? styles.stepIconCurrent : styles.stepIconIdle]}>
+              <Icon name={stepIndex > 3 ? "check" : stepIndex === 3 ? "robot-outline" : "checkbox-blank-circle-outline"} size={16} color={stepIndex > 3 ? "#0F5132" : stepIndex === 3 ? "#1D4ED8" : "#9CA3AF"} />
             </View>
-            <Text style={stepIndex >= 3 ? styles.stepText : styles.stepTextMuted}>
-              {stepIndex >= 3 ? 'Finalizing Assessment...' : 'Preparing your result...'}
+            <Text style={[styles.stepText, stepIndex === 3 && styles.stepTextEmphasis]}>
+              {stepIndex === 3 ? statusMessage : (stepIndex > 3 ? 'LLM Output Generated' : 'Waiting for LLM...')}
             </Text>
           </View>
         </View>
+
+        {stepIndex >= 3 && (
+          <ScrollView style={styles.llmStreamBox}>
+            <Text style={styles.llmStreamText}>
+              {llmText.length > 0 ? llmText : "Loading Llama 3.2 Engine...\n\nInitializing weight layers..."}
+            </Text>
+          </ScrollView>
+        )}
 
         <View style={styles.metricsBox}>
           <Text style={styles.metricsHeader}>Pipeline Latency Metrics:</Text>
@@ -287,9 +363,11 @@ const styles = StyleSheet.create({
   stepText: { fontSize: 14, fontWeight: '600', color: '#1F2937', flex: 1 },
   stepTextEmphasis: { color: '#1D4ED8' },
   stepTextMuted: { fontSize: 14, fontWeight: '600', color: '#9CA3AF' },
+  llmStreamBox: { maxHeight: 120, padding: 10, backgroundColor: '#1E293B', borderRadius: 8, marginTop: 4 },
+  llmStreamText: { color: '#38BDF8', fontFamily: 'monospace', fontSize: 12, lineHeight: 18 },
   cancelButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, borderRadius: 24, borderWidth: 2, borderColor: '#9CA3AF', paddingVertical: 14, marginTop: 18, backgroundColor: '#F7F7F8' },
   cancelText: { fontSize: 16, fontWeight: '700', color: '#374151' },
-  metricsBox: { marginTop: 10, padding: 12, backgroundColor: '#111', borderRadius: 8 },
+  metricsBox: { marginTop: 4, padding: 12, backgroundColor: '#111', borderRadius: 8 },
   metricsHeader: { color: '#FFF', fontSize: 10, fontWeight: 'bold', marginBottom: 4 },
   metricsText: { color: '#0F0', fontFamily: 'monospace', fontSize: 11 },
   etaRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#F3EEEC', borderRadius: 12, paddingVertical: 10, paddingHorizontal: 14, marginTop: 8 },

@@ -22,6 +22,7 @@ export default function InputMethodScreen() {
   const [notes, setNotes] = useState('');
   const [photoUri, setPhotoUri] = useState<string | undefined>();
   const [audioUri, setAudioUri] = useState<string | undefined>();
+  const [analysisMode, setAnalysisMode] = useState<'fast' | 'deep'>('deep');
 
   useEffect(() => {
     if (params?.photoUri) {
@@ -116,6 +117,29 @@ export default function InputMethodScreen() {
           </View>
         </View>
 
+        <View style={styles.modeSection}>
+          <Text style={styles.modeSectionTitle}>Analysis Mode</Text>
+          <View style={styles.modeCards}>
+            <Pressable
+              style={[styles.modeCard, analysisMode === 'fast' && styles.modeCardActive]}
+              onPress={() => setAnalysisMode('fast')}
+            >
+              <Icon name="lightning-bolt" size={24} color={analysisMode === 'fast' ? '#0E5FB3' : '#6B7280'} />
+              <Text style={[styles.modeCardTitle, analysisMode === 'fast' && styles.modeCardTitleActive]}>Fast</Text>
+              <Text style={styles.modeCardDesc}>RAG Database Only (Instant)</Text>
+            </Pressable>
+            
+            <Pressable
+              style={[styles.modeCard, analysisMode === 'deep' && styles.modeCardActive]}
+              onPress={() => setAnalysisMode('deep')}
+            >
+              <Icon name="brain" size={24} color={analysisMode === 'deep' ? '#0E5FB3' : '#6B7280'} />
+              <Text style={[styles.modeCardTitle, analysisMode === 'deep' && styles.modeCardTitleActive]}>Deep</Text>
+              <Text style={styles.modeCardDesc}>AI Synthesis (10-30s)</Text>
+            </Pressable>
+          </View>
+        </View>
+
         <Pressable
           style={[styles.analyzeButton, !canAnalyze && styles.analyzeDisabled]}
           disabled={!canAnalyze}
@@ -124,6 +148,7 @@ export default function InputMethodScreen() {
               photoUri,
               audioUri,
               text: notes.trim() || undefined,
+              analysisMode,
             })
           }
         >
@@ -316,5 +341,45 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#6B7280',
     lineHeight: 18,
+  },
+  modeSection: {
+    marginBottom: 20,
+    gap: 12,
+  },
+  modeSectionTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1F2937',
+  },
+  modeCards: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  modeCard: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1.5,
+    borderColor: '#D1D5DB',
+    borderRadius: 14,
+    padding: 14,
+    alignItems: 'center',
+    gap: 6,
+  },
+  modeCardActive: {
+    borderColor: '#0E5FB3',
+    backgroundColor: '#F0F7FF',
+  },
+  modeCardTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#4B5563',
+  },
+  modeCardTitleActive: {
+    color: '#0E5FB3',
+  },
+  modeCardDesc: {
+    fontSize: 11,
+    color: '#6B7280',
+    textAlign: 'center',
   },
 });
