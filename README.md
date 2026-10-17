@@ -1,4 +1,4 @@
-# 👁️ EarlyEyes — Offline-First Multimodal AI Pediatric Screening System
+# EarlyEyes — Offline-First Multimodal AI Pediatric Screening System
 
 <div align="center">
 
@@ -6,18 +6,18 @@
 [![React Native](https://img.shields.io/badge/React_Native-0.85-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://reactnative.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Edge AI](https://img.shields.io/badge/Edge_AI-100%25_Offline-FF6F00?style=for-the-badge&logo=tensorflow&logoColor=white)](https://www.tensorflow.org/lite)
-[![Languages](https://img.shields.io/badge/Languages-10_Supported-4CAF50?style=for-the-badge)](#-multilingual-support)
-[![Privacy](https://img.shields.io/badge/Privacy-Zero_Cloud_Data-8E44AD?style=for-the-badge)](#-data-privacy--sovereignty)
+[![Languages](https://img.shields.io/badge/Languages-10_Supported-4CAF50?style=for-the-badge)](#multilingual-support)
+[![Privacy](https://img.shields.io/badge/Privacy-Zero_Cloud_Data-8E44AD?style=for-the-badge)](#data-privacy--sovereignty)
 
 **An intelligent, fully offline edge-AI early warning system for pediatric malnutrition, ocular indicators, and developmental conditions in low-resource environments.**
 
-[Key Features](#-key-features) • [System Architecture](#-system-architecture) • [AI Pipeline & Models](#-ai-pipeline--models) • [Benchmarking](#-benchmarks--performance) • [Getting Started](#-getting-started) • [Medical Disclaimer](#-medical-disclaimer)
+[Key Features](#key-features) • [System Architecture](#system-architecture) • [AI Pipeline & Models](#ai-pipeline--models) • [Benchmarking](#benchmarks--performance) • [Getting Started](#getting-started) • [Medical Disclaimer](#medical-disclaimer)
 
 </div>
 
 ---
 
-## 📌 Problem & Motivation
+## Problem & Motivation
 
 Every year, **3.1 million children die from preventable malnutrition and untreated pediatric conditions**—not because treatments do not exist, but because of **delayed detection**. In remote villages, disaster camps, and underserved rural areas, specialist doctors and diagnostic equipment are absent.
 
@@ -30,20 +30,20 @@ While cloud-based AI diagnostic tools exist, they fundamentally fail where the m
 
 ---
 
-## ⚡ Key Features
+## Key Features
 
-- 📴 **100% Offline Edge-AI Pipeline:** Computer Vision, Speech-to-Text, and Retrieval-Augmented Generation (RAG) execute locally on device hardware. Zero internet required after install.
-- 👁️ **Tri-Model Computer Vision:** Decomposes visual assessment into three parallel lightweight neural networks (~30 MB total) running concurrently on a 4-thread native executor via NNAPI and GPU delegates.
-- 🎙️ **On-Device Voice Transcription:** Integrates `whisper.rn` (`whisper.cpp` JNI wrapper) with a quantized Whisper-Base model (142 MB) to transcribe spoken symptoms directly on CPU across regional accents.
-- 📚 **Deterministic Clinical RAG (52 Conditions):** Knowledge retrieval engine grounded in 52 WHO-curated pediatric conditions (ICD-11 codes) across 8 clinical categories with sub-50ms deterministic scoring.
-- 📍 **Offline GPS Specialist Handoff:** Uses raw device satellite GPS coordinates and mathematical Haversine formulas against a pre-bundled database of regional hospitals (`facilities_tn.json`) to find the nearest specialized healthcare facility.
-- 📋 **"Tell the Doctor" Brief:** Synthesizes caregiver-reported symptoms, detected visual flags, and WHO clinical guidelines into an actionable, copyable briefing note for medical practitioners.
-- 🌐 **10 Regional Languages:** Fully localized interface supporting **Tamil (`ta`), Hindi (`hi`), Bengali (`bn`), Swahili (`sw`), Hausa (`ha`), Amharic (`am`), Urdu (`ur`), Spanish (`es`), French (`fr`), and English (`en`)**.
-- 🛠️ **Clinician & Developer Audit Panel:** Built-in transparency dashboard displaying intermediate inference tokens, confidence percentiles, and raw sensor outputs.
+- **100% Offline Edge-AI Pipeline:** Computer Vision, Speech-to-Text, and Retrieval-Augmented Generation (RAG) execute locally on device hardware. Zero internet required after install.
+- **Tri-Model Computer Vision:** Decomposes visual assessment into three parallel lightweight neural networks (~30 MB total) running concurrently on a 4-thread native executor via NNAPI and GPU delegates.
+- **On-Device Voice Transcription:** Integrates `whisper.rn` (`whisper.cpp` JNI wrapper) with a quantized Whisper-Base model (142 MB) to transcribe spoken symptoms directly on CPU across regional accents.
+- **Deterministic Clinical RAG (52 Conditions):** Knowledge retrieval engine grounded in 52 WHO-curated pediatric conditions (ICD-11 codes) across 8 clinical categories with sub-50ms deterministic scoring.
+- **Offline GPS Specialist Handoff:** Uses raw device satellite GPS coordinates and mathematical Haversine formulas against a pre-bundled database of regional hospitals (`facilities_tn.json`) to find the nearest specialized healthcare facility.
+- **"Tell the Doctor" Brief:** Synthesizes caregiver-reported symptoms, detected visual flags, and WHO clinical guidelines into an actionable, copyable briefing note for medical practitioners.
+- **10 Regional Languages:** Fully localized interface supporting **Tamil (`ta`), Hindi (`hi`), Bengali (`bn`), Swahili (`sw`), Hausa (`ha`), Amharic (`am`), Urdu (`ur`), Spanish (`es`), French (`fr`), and English (`en`)**.
+- **Clinician & Developer Audit Panel:** Built-in transparency dashboard displaying intermediate inference tokens, confidence percentiles, and raw sensor outputs.
 
 ---
 
-## 🏗️ System Architecture
+## System Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -82,7 +82,7 @@ While cloud-based AI diagnostic tools exist, they fundamentally fail where the m
                                       ▼
                       ┌───────────────────────────────┐
                       │    RISK ARBITRATION ENGINE    │
-                      │  🔴 Urgent | 🟡 Monitor | 🟢 OK│
+                      │    Urgent | Monitor | OK      │
                       └───────────────┬───────────────┘
                                       │
               ┌───────────────────────┴───────────────────────┐
@@ -98,7 +98,7 @@ While cloud-based AI diagnostic tools exist, they fundamentally fail where the m
 
 ---
 
-## 🧠 AI Pipeline & Models
+## AI Pipeline & Models
 
 ### 1. Tri-Model Parallel Computer Vision (~30 MB Total)
 Rather than executing a single large multimodal vision-language model (which causes thermal throttling and out-of-memory crashes on low-end devices), EarlyEyes splits visual feature extraction across three specialized lightweight networks:
@@ -135,7 +135,7 @@ Rather than executing a single large multimodal vision-language model (which cau
 
 ---
 
-## 📊 Benchmarks & Performance
+## Benchmarks & Performance
 
 Measured on a physical budget Android smartphone (**Redmi / Samsung Galaxy A-series, 4 GB RAM, Android 13**):
 
@@ -158,7 +158,7 @@ Measured on a physical budget Android smartphone (**Redmi / Samsung Galaxy A-ser
 
 ---
 
-## 📁 Repository Structure
+## Repository Structure
 
 ```
 earlyeyes/
@@ -189,7 +189,7 @@ earlyeyes/
 
 ---
 
-## 🚀 Getting Started
+## Getting Started
 
 ### Prerequisites
 - **Node.js:** `>= 22.11.0`
@@ -237,7 +237,7 @@ npm run android
 
 ---
 
-## 🔒 Data Privacy & Sovereignty
+## Data Privacy & Sovereignty
 
 - **Zero Cloud Communication:** The app makes zero external network calls during assessment.
 - **In-Memory Image Processing:** Photos captured for screening are analyzed in device RAM and are not retained on public storage.
@@ -246,7 +246,7 @@ npm run android
 
 ---
 
-## ⚠️ Medical Disclaimer
+## Medical Disclaimer
 
 > **EarlyEyes is an educational screening and early-warning decision-support tool. It is NOT a diagnostic device.**
 > 
@@ -254,7 +254,7 @@ npm run android
 
 ---
 
-## 📜 License & Acknowledgments
+## License & Acknowledgments
 
 This project is licensed under the ISC License.
 
@@ -267,5 +267,5 @@ Special thanks to the open-source community and humanitarian research groups tha
 ---
 
 <div align="center">
-  <sub>Built with ❤️ for global child health and edge computing accessibility.</sub>
+  <sub>Built for global child health and edge computing accessibility.</sub>
 </div>
