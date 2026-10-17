@@ -178,10 +178,6 @@ earlyeyes/
 │   │   │   └── rag/              # QueryBuilder, DiseaseScorer, chunk mappings
 │   │   └── types/                # TypeScript interfaces & types
 │   └── package.json
-├── RAG/                          # Offline Knowledge Base Extraction & Processing
-│   ├── chunking.py               # WHO clinical document chunking script
-│   ├── chunk_map.json            # 52 condition database with TF-IDF terms
-│   └── rag_data.json             # Raw clinical source guidelines
 └── PROJECT_OVERVIEW.md           # High-level architecture overview
 ```
 
